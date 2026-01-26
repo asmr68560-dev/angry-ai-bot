@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: angry-ai-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        value: 8390892459:AAERG9pTHakirh9y-R0dl5P-v9TNmjTZmqE
+      - key: PYTHON_VERSION
+        value: 3.11.0
