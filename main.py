@@ -61,8 +61,8 @@ def main():
     print("=" * 40)
     
     try:
-        # Создаем updater
-        updater = Updater(BOT_TOKEN, use_context=True)
+        # Создаем updater - БЕЗ use_context!
+        updater = Updater(BOT_TOKEN)
         
         # Получаем dispatcher
         dp = updater.dispatcher
