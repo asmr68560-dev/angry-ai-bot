@@ -3,6 +3,12 @@ import random
 import logging
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
+try:
+    import imghdr
+except ImportErrol:
+    import io
+    imghdr = type('imghdr', (), {'what': lambda *args: None})()
+
 # Получаем токен
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8390892459:AAERG9pTHakirh9y-R0dl5P-v9TNmjTZmqE")
 
