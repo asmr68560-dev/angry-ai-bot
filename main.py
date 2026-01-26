@@ -1,13 +1,7 @@
 import os
 import random
 import logging
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-
-try:
-    import imghdr
-except ImportErrol:
-    import io
-    imghdr = type('imghdr', (), {'what': lambda *args: None})()
+from telegram.ext import Updater, CommandHandler, MessageHandler, filters
 
 # Получаем токен
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8390892459:AAERG9pTHakirh9y-R0dl5P-v9TNmjTZmqE")
@@ -79,7 +73,7 @@ def main():
         dp.add_handler(CommandHandler("settings", settings_command))
         
         # Регистрируем обработчик сообщений
-        dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+        dp.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
         # Запускаем бота
         print("✅ Бот запущен! Ожидаю сообщений...")
