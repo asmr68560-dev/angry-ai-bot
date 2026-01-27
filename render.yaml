@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: aggressive-telegram-bot
+    name: telegram-bot
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -8,11 +8,4 @@ services:
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: DEEPSEEK_API_KEY
-        value: sk-2da50845f9424f91ad4d076dabea0a61
-      - key: USE_FREE_AI
-        value: "True"
-      - key: AGGRESSION_LEVEL
-        value: "8"
     healthCheckPath: /health
-    autoDeploy: true
