@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: telegram-aggressive-bot
+    name: aggressive-telegram-bot
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -14,7 +14,5 @@ services:
         value: "True"
       - key: AGGRESSION_LEVEL
         value: "8"
-      - key: SAVAGE_MODE
-        value: "True"
     healthCheckPath: /health
     autoDeploy: true
