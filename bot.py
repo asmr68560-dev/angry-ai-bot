@@ -2,26 +2,12 @@ import telebot
 from telebot import types
 import os
 import time
-from flask import Flask, request
-import logging
-
-# Настройка логирования
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
 
 # Настройки
-TOKEN = os.environ.get('TOKEN')
+TOKEN = '8390892459:AAHjBytOW90P2z-84wa2uDioRlXnyVP742s'  # ваш новый токен
 ADMIN_ID = 913566244
 
-# URL вашего сервиса (жестко прописываем)
-RENDER_URL = "https://minecraft-bot.onrender.com"
-WEBHOOK_URL = f"{RENDER_URL}/webhook"
-
 bot = telebot.TeleBot(TOKEN)
-app = Flask(__name__)
 
 PAYMENT_NUMBERS = [
     ["🎮 Проходка на один сезон - 25  руб", "+7 (932) 304-54-76"],
@@ -40,47 +26,10 @@ SERVER_VERSION = "1.21.11 Fabric"
 
 users = {}
 
-# Функция для установки вебхука
-def set_webhook():
-    logger.info("🔄 Устанавливаю вебхук...")
-    try:
-        bot.remove_webhook()
-        time.sleep(1)
-        bot.set_webhook(url=WEBHOOK_URL)
-        logger.info(f"✅ Вебхук установлен на {WEBHOOK_URL}")
-        
-        # Проверяем вебхук
-        webhook_info = bot.get_webhook_info()
-        logger.info(f"📊 Информация о вебхуке: {webhook_info.url}")
-    except Exception as e:
-        logger.error(f"❌ Ошибка установки вебхука: {e}")
-
-# Flask маршрут для вебхуков Telegram
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        logger.info(f"📩 Получено обновление: {update.update_id}")
-        bot.process_new_updates([update])
-        return 'OK', 200
-    else:
-        return 'Wrong content type', 403
-
-# Flask маршрут для проверки здоровья бота
-@app.route('/health', methods=['GET'])
-def health():
-    return 'Bot is running', 200
-
-@app.route('/')
-def index():
-    return 'Minecraft Bot is running!', 200
-
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
     users[user_id] = {}
-    logger.info(f"👤 Пользователь {user_id} запустил бота")
     
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("💰 Тарифы")
@@ -181,7 +130,10 @@ def back_to_tariffs(call):
 @bot.callback_query_handler(func=lambda call: call.data == "paid")
 def paid(call):
     bot.edit_message_text(
-        "✅ Отлично! Теперь напиши свой ник в Minecraft:",
+        "✅ Отлично! Теперь на
+
+
+пиши свой ник в Minecraft:",
         call.message.chat.id,
         call.message.message_id
     )
@@ -197,7 +149,6 @@ def get_nickname(message):
     tariff_info = users[user_id].get('tariff', 'Не выбран')
     number_info = users[user_id].get('number', 'Не указан')
     
-    # Отправляем админу
     admin_msg = (
         f"🆕 **НОВАЯ ЗАЯВКА НА ОПЛАТУ!**\n\n"
         f"👤 **Пользователь:** @{username}\n"
@@ -239,7 +190,6 @@ def admin_confirm(call):
         bot.answer_callback_query(call.id, "Пользователь не найден")
         return
     
-    nickname = users[user_id].get('nick', 'игрок')
     tariff = users[user_id].get('tariff', 'тариф')
     
     bot.send_message(
@@ -313,7 +263,12 @@ def admin_reject(call):
         message_id=call.message.message_id,
         text=call.message.text + "\n\n❌ **ОТКЛОНЕНО** ❌",
         parse_mode='Markdown',
-        reply_markup=None
+        reply_markup=No
+call.id – Domain name for sale
+call.id
+
+
+ne
     )
 
 @bot.message_handler(func=lambda m: m.text == "📦 Моды")
@@ -396,15 +351,9 @@ def other(message):
         "❓ Помощь - связь с поддержкой"
     )
 
-if __name__ == "__main__":
-    logger.info("🤖Бот запускается на Render...")
-    logger.info("💰 Режим: оплата переводом по номеру телефона")
-    logger.info(f"👑 Админ ID: {ADMIN_ID}")
-    
-    # Устанавливаем вебхук при запуске
-    set_webhook()
-    
-    # Запускаем Flask сервер
-    port = int(os.environ.get('PORT', 5000))
-    logger.info(f"🚀 Запуск Flask сервера на порту {port}")
-    app.run(host='0.0.0.0', port=port)
+print("🤖 Бот запущен с новым токеном!")
+print("💰 Режим: оплата переводом по номеру телефона")
+print(f"👑 Админ ID: {ADMIN_ID}")
+
+# Запускаем бота
+bot.polling(non_stop=True, interval=0)
