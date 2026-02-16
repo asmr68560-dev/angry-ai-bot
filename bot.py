@@ -13,7 +13,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Настройки
-TOKEN = '8247657980:AAF22gRg7Hj32m88FD-x0O0lFrAuVsuQ2pA'
+TOKEN = os.environ.get('TOKEN')
 ADMIN_ID = 913566244
 
 # URL вашего сервиса (жестко прописываем)
