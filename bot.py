@@ -260,14 +260,8 @@ def admin_reject(call):
         message_id=call.message.message_id,
         text=call.message.text + "\n\n❌ **ОТКЛОНЕНО** ❌",
         parse_mode='Markdown',
-        reply_markup=No
-call.id – Domain name for sale
-call.id
-
-
-ne
-    )
-
+        reply_markup=None
+        
 @bot.message_handler(func=lambda m: m.text == "📦 Моды")
 def show_mods(message):
     mods_text = (
