@@ -6,6 +6,7 @@ import sys
 import time
 import threading
 import requests
+import atexit
 
 # Настройки из переменных окружения
 TOKEN = os.getenv('BOT_TOKEN')
@@ -15,24 +16,36 @@ if not TOKEN:
     print("❌ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
     sys.exit(1)
 
-# Функция для удаления вебхука перед запуском
-def delete_webhook():
-    """Принудительно удаляем вебхук перед запуском поллинга"""
+# Функция для полной очистки вебхука и завершения всех сессий
+def cleanup_telegram():
+    """Принудительно очищаем все предыдущие подключения"""
     try:
+        # 1. Удаляем вебхук и сбрасываем все ожидающие обновления
         url = f"https://api.telegram.org/bot{TOKEN}/deleteWebhook"
         response = requests.post(url, json={"drop_pending_updates": True})
+        print(f"✅ Вебхук удален: {response.status_code == 200}")
+        
+        # 2. Закрываем все активные сессии getUpdates
+        url = f"https://api.telegram.org/bot{TOKEN}/close"
+        response = requests.post(url)
+        print(f"✅ Сессии закрыты: {response.status_code == 200}")
+        
+        # 3. Получаем информацию о боте для проверки
+        url = f"https://api.telegram.org/bot{TOKEN}/getMe"
+        response = requests.get(url)
         if response.status_code == 200:
-            print("✅ Вебхук успешно удален")
-            return True
-        else:
-            print(f"❌ Ошибка удаления вебхука: {response.text}")
-            return False
+            bot_info = response.json()
+            print(f"✅ Бот: @{bot_info['result']['username']}")
+        
+        return True
     except Exception as e:
-        print(f"❌ Ошибка при удалении вебхука: {e}")
+        print(f"❌ Ошибка очистки: {e}")
         return False
 
-# Удаляем вебхук перед инициализацией бота
-delete_webhook()
+# Очищаем перед запуском
+print("🔄 Очистка предыдущих подключений...")
+cleanup_telegram()
+time.sleep(2)  # Даем время на очистку
 
 # Инициализация бота
 bot = telebot.TeleBot(TOKEN)
@@ -64,11 +77,18 @@ def signal_handler(signum, frame):
     global running
     print("\n🛑 Получен сигнал остановки, завершаем работу...")
     running = False
-    bot.stop_polling()
+    try:
+        bot.stop_polling()
+        cleanup_telegram()
+    except:
+        pass
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
+
+# Регистрируем очистку при выходе
+atexit.register(lambda: cleanup_telegram())
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -131,7 +151,8 @@ def process_tariff(call):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton(
         "✅ Я перевел деньги",
-        callback_data="paid"))
+        callback_data="paid"
+    ))
     markup.add(types.InlineKeyboardButton(
         "◀️ Назад к тарифам",
         callback_data="back_to_tariffs"
@@ -393,7 +414,8 @@ def show_all_numbers(message):
 
 @bot.message_handler(func=lambda m: True)
 def other(message):
-    bot.send_message(message.chat.id,
+    bot.send_message(
+        message.chat.id,
         "Используй кнопки меню:\n"
         "💰 Тарифы - номера для перевода\n"
         "📦 Моды - скачать моды\n"
@@ -411,35 +433,45 @@ def keep_alive():
             print(f"❌ Ошибка пинга: {e}")
 
 if __name__ == '__main__':
-    print("🤖 Бот запускается на Render...")
+    print("=" * 50)
+    print("🤖 ЗАПУСК БОТА НА RENDER")
+    print("=" * 50)
     print(f"💰 Режим: оплата переводом по номеру телефона")
     print(f"📦 Моды: Simple Voice, Voice Messages, Emotecraft")
     print(f"👑 Админ ID: {ADMIN_ID}")
     print("🔄 Режим: поллинг (без вебхука)")
+    print("=" * 50)
     
-    # Дополнительная проверка статуса вебхука
-    try:
-        webhook_info = requests.get(f"https://api.telegram.org/bot{TOKEN}/getWebhookInfo").json()
-        if webhook_info.get('result', {}).get('url'):
-            print(f"⚠️ Найден активный вебхук: {webhook_info['result']['url']}")
-            print("🔄 Принудительно удаляем...")
-            delete_webhook()
-    except Exception as e:
-        print(f"❌ Ошибка проверки вебхука: {e}")
+    # Финальная очистка перед запуском
+    print("🔄 Финальная очистка подключений...")
+    cleanup_telegram()
+    time.sleep(3)
     
     # Запускаем поток для поддержания активности
     alive_thread = threading.Thread(target=keep_alive, daemon=True)
     alive_thread.start()
     
     # Запускаем бота с обработкой ошибок
-    while running:
+    retry_count = 0
+    max_retries = 5
+    
+    while running and retry_count < max_retries:
         try:
             print("✅ Бот запущен и ожидает сообщения...")
-            bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
+            # Используем инфраструктуру с меньшим таймаутом
+            bot.polling(none_stop=True, interval=1, timeout=30, skip_pending=True)
         except Exception as e:
-            print(f"❌ Ошибка polling: {e}")
-            if running:
-                print("🔄 Перезапуск через 5 секунд...")
+            retry_count += 1
+            print(f"❌ Ошибка polling (попытка {retry_count}/{max_retries}): {e}")
+            
+            if "409" in str(e):
+                print("🔄 Обнаружен конфликт, выполняем глубокую очистку...")
+                cleanup_telegram()
                 time.sleep(5)
-                # Удаляем вебхук перед перезапуском
-                delete_webhook()
+            
+            if running and retry_count < max_retries:
+                print(f"🔄 Перезапуск через 10 секунд...")
+                time.sleep(10)
+            else:
+                print("❌ Превышено количество попыток перезапуска")
+                break
