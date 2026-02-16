@@ -2,7 +2,6 @@ import telebot
 from telebot import types
 import os
 import time
-import threading
 from flask import Flask, request
 import logging
 
@@ -17,12 +16,9 @@ logger = logging.getLogger(__name__)
 TOKEN = '8247657980:AAF22gRg7Hj32m88FD-x0O0lFrAuVsuQ2pA'
 ADMIN_ID = 913566244
 
-# Для Render: определяем URL из переменных окружения
-RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL', None)
-if RENDER_URL:
-    WEBHOOK_URL = f"{RENDER_URL}/webhook"
-else:
-    WEBHOOK_URL = None
+# URL вашего сервиса (жестко прописываем)
+RENDER_URL = "https://minecraft-bot.onrender.com"
+WEBHOOK_URL = f"{RENDER_URL}/webhook"
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -46,13 +42,18 @@ users = {}
 
 # Функция для установки вебхука
 def set_webhook():
-    if WEBHOOK_URL:
+    logger.info("🔄 Устанавливаю вебхук...")
+    try:
         bot.remove_webhook()
         time.sleep(1)
         bot.set_webhook(url=WEBHOOK_URL)
-        logger.info(f"Вебхук установлен на {WEBHOOK_URL}")
-    else:
-        logger.warning("RENDER_EXTERNAL_URL не найден, используется polling")
+        logger.info(f"✅ Вебхук установлен на {WEBHOOK_URL}")
+        
+        # Проверяем вебхук
+        webhook_info = bot.get_webhook_info()
+        logger.info(f"📊 Информация о вебхуке: {webhook_info.url}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка установки вебхука: {e}")
 
 # Flask маршрут для вебхуков Telegram
 @app.route('/webhook', methods=['POST'])
@@ -60,12 +61,13 @@ def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
+        logger.info(f"📩 Получено обновление: {update.update_id}")
         bot.process_new_updates([update])
         return 'OK', 200
     else:
         return 'Wrong content type', 403
 
-# Flask маршрут для проверки здоровья бота (Render использует для мониторинга)
+# Flask маршрут для проверки здоровья бота
 @app.route('/health', methods=['GET'])
 def health():
     return 'Bot is running', 200
@@ -78,6 +80,7 @@ def index():
 def start(message):
     user_id = message.from_user.id
     users[user_id] = {}
+    logger.info(f"👤 Пользователь {user_id} запустил бота")
     
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("💰 Тарифы")
@@ -394,13 +397,14 @@ def other(message):
     )
 
 if __name__ == "__main__":
-    logger.info("🤖 Бот запускается на Render...")
+    logger.info("🤖Бот запускается на Render...")
     logger.info("💰 Режим: оплата переводом по номеру телефона")
     logger.info(f"👑 Админ ID: {ADMIN_ID}")
     
     # Устанавливаем вебхук при запуске
     set_webhook()
     
-    # Запускаем Flask сервер (Render сам предоставит порт через переменную PORT)
+    # Запускаем Flask сервер
     port = int(os.environ.get('PORT', 5000))
+    logger.info(f"🚀 Запуск Flask сервера на порту {port}")
     app.run(host='0.0.0.0', port=port)
