@@ -130,10 +130,7 @@ def back_to_tariffs(call):
 @bot.callback_query_handler(func=lambda call: call.data == "paid")
 def paid(call):
     bot.edit_message_text(
-        "✅ Отлично! Теперь на
-
-
-пиши свой ник в Minecraft:",
+        "✅ Отлично! Теперь напиши свой ник в Minecraft:",
         call.message.chat.id,
         call.message.message_id
     )
