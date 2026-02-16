@@ -5,6 +5,7 @@ import signal
 import sys
 import time
 import threading
+import requests
 
 # Настройки из переменных окружения
 TOKEN = os.getenv('BOT_TOKEN')
@@ -13,6 +14,25 @@ ADMIN_ID = int(os.getenv('ADMIN_ID', '913566244'))
 if not TOKEN:
     print("❌ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
     sys.exit(1)
+
+# Функция для удаления вебхука перед запуском
+def delete_webhook():
+    """Принудительно удаляем вебхук перед запуском поллинга"""
+    try:
+        url = f"https://api.telegram.org/bot{TOKEN}/deleteWebhook"
+        response = requests.post(url, json={"drop_pending_updates": True})
+        if response.status_code == 200:
+            print("✅ Вебхук успешно удален")
+            return True
+        else:
+            print(f"❌ Ошибка удаления вебхука: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Ошибка при удалении вебхука: {e}")
+        return False
+
+# Удаляем вебхук перед инициализацией бота
+delete_webhook()
 
 # Инициализация бота
 bot = telebot.TeleBot(TOKEN)
@@ -111,8 +131,7 @@ def process_tariff(call):
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton(
         "✅ Я перевел деньги",
-        callback_data="paid"
-    ))
+        callback_data="paid"))
     markup.add(types.InlineKeyboardButton(
         "◀️ Назад к тарифам",
         callback_data="back_to_tariffs"
@@ -374,8 +393,7 @@ def show_all_numbers(message):
 
 @bot.message_handler(func=lambda m: True)
 def other(message):
-    bot.send_message(
-        message.chat.id,
+    bot.send_message(message.chat.id,
         "Используй кнопки меню:\n"
         "💰 Тарифы - номера для перевода\n"
         "📦 Моды - скачать моды\n"
@@ -385,7 +403,7 @@ def other(message):
 def keep_alive():
     """Функция для поддержания активности на Render"""
     while running:
-        time.sleep(60)  # Каждую минуту
+        time.sleep(300)  # Каждые 5 минут
         try:
             bot.get_me()
             print(f"✅ Пинг бота: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -399,17 +417,29 @@ if __name__ == '__main__':
     print(f"👑 Админ ID: {ADMIN_ID}")
     print("🔄 Режим: поллинг (без вебхука)")
     
+    # Дополнительная проверка статуса вебхука
+    try:
+        webhook_info = requests.get(f"https://api.telegram.org/bot{TOKEN}/getWebhookInfo").json()
+        if webhook_info.get('result', {}).get('url'):
+            print(f"⚠️ Найден активный вебхук: {webhook_info['result']['url']}")
+            print("🔄 Принудительно удаляем...")
+            delete_webhook()
+    except Exception as e:
+        print(f"❌ Ошибка проверки вебхука: {e}")
+    
     # Запускаем поток для поддержания активности
     alive_thread = threading.Thread(target=keep_alive, daemon=True)
     alive_thread.start()
     
-    # Запускаем бота
-    try:
-        bot.infinity_polling(timeout=60, long_polling_timeout=60)
-    except Exception as e:
-        print(f"❌ Ошибка polling: {e}")
-        time.sleep(5)
-        # Перезапуск при ошибке
-        if running:
-            print("🔄 Перезапуск...")
-            os.execv(sys.executable, ['python'] + sys.argv)
+    # Запускаем бота с обработкой ошибок
+    while running:
+        try:
+            print("✅ Бот запущен и ожидает сообщения...")
+            bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
+        except Exception as e:
+            print(f"❌ Ошибка polling: {e}")
+            if running:
+                print("🔄 Перезапуск через 5 секунд...")
+                time.sleep(5)
+                # Удаляем вебхук перед перезапуском
+                delete_webhook()
