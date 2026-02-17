@@ -10,7 +10,13 @@ import atexit
 
 # Настройки из переменных окружения
 TOKEN = os.getenv('BOT_TOKEN')
-ADMIN_ID = int(os.getenv('ADMIN_ID', '913566244'))
+
+# ===== СПИСОК ВСЕХ АДМИНОВ (ВСЕ РАВНЫ) =====
+ADMIN_IDS = [
+    913566244,   # ваш ID
+    6108135706,  # первый админ
+    5330661807,  # второй админ
+]
 
 if not TOKEN:
     print("❌ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
@@ -214,7 +220,7 @@ def get_nickname(message):
     tariff_info = users[user_id].get('tariff', 'Не выбран')
     number_info = users[user_id].get('number', 'Не указан')
     
-    # Отправляем админу
+    # Отправляем ВСЕМ админам
     admin_msg = (
         f"🆕 **НОВАЯ ЗАЯВКА НА ОПЛАТУ!**\n\n"
         f"👤 **Пользователь:** @{username}\n"
@@ -238,10 +244,13 @@ def get_nickname(message):
         url=f"tg://user?id={user_id}"
     ))
     
-    try:
-        bot.send_message(ADMIN_ID, admin_msg, parse_mode='Markdown', reply_markup=markup)
-    except Exception as e:
-        print(f"Ошибка отправки админу: {e}")
+    # Отправляем каждому админу из списка
+    for admin_id in ADMIN_IDS:
+        try:
+            bot.send_message(admin_id, admin_msg, parse_mode='Markdown', reply_markup=markup)
+            print(f"✅ Заявка отправлена админу {admin_id}")
+        except Exception as e:
+            print(f"❌ Ошибка отправки админу {admin_id}: {e}")
     
     bot.send_message(
         message.chat.id,
@@ -253,10 +262,15 @@ def get_nickname(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_'))
 def admin_confirm(call):
+    # Проверяем, что админ есть в списке
+    if call.from_user.id not in ADMIN_IDS:
+        bot.answer_callback_query(call.id, "❌ У вас нет прав администратора")
+        return
+    
     user_id = int(call.data.split('_')[1])
     
     if user_id not in users:
-        bot.answer_callback_query(call.id, "Пользователь не найден в базе")
+        bot.answer_callback_query(call.id, "❌ Пользователь не найден в базе")
         return
     
     nickname = users[user_id].get('nick', 'игрок')
@@ -303,9 +317,21 @@ def admin_confirm(call):
             parse_mode='Markdown'
         )
     except Exception as e:
-        print(f"Ошибка отправки пользователю: {e}")
+        print(f"❌ Ошибка отправки пользователю: {e}")
     
     bot.answer_callback_query(call.id, "✅ Доступ выдан")
+    
+    # Уведомляем других админов, что заявка обработана
+    for admin_id in ADMIN_IDS:
+        if admin_id != call.from_user.id:  # не отправляем тому, кто подтвердил
+            try:
+                bot.send_message(
+                    admin_id,
+                    f"✅ Админ @{call.from_user.username or 'админ'} подтвердил оплату для пользователя {nickname}",
+                    parse_mode='Markdown'
+                )
+            except:
+                pass
     
     bot.edit_message_text(
         chat_id=call.message.chat.id,
@@ -317,6 +343,11 @@ def admin_confirm(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('reject_'))
 def admin_reject(call):
+    # Проверяем, что админ есть в списке
+    if call.from_user.id not in ADMIN_IDS:
+        bot.answer_callback_query(call.id, "❌ У вас нет прав администратора")
+        return
+    
     user_id = int(call.data.split('_')[1])
     
     try:
@@ -327,10 +358,10 @@ def admin_reject(call):
             "• Не подтверждена оплата\n"
             "• Не получен перевод\n"
             "• Некорректные данные\n\n"
-            "📞 Для уточнения свяжитесь с поддержкой: @support_username"
+            "📞 Для уточнения свяжитесь с поддержкой"
         )
     except Exception as e:
-        print(f"Ошибка отправки пользователю: {e}")
+        print(f"❌ Ошибка отправки пользователю: {e}")
     
     bot.answer_callback_query(call.id, "❌ Заявка отклонена")
     
@@ -357,15 +388,15 @@ def show_mods(message):
     
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton(
-        "📥 Simple Voice Chat",
+        "📥 Скачать Simple Voice Chat",
         url="https://modrinth.com/mod/simple-voice-chat"
     ))
     markup.add(types.InlineKeyboardButton(
-        "📥 Voice Messages",
+        "📥 Скачать Voice Messages",
         url="https://modrinth.com/mod/voice-messages"
     ))
     markup.add(types.InlineKeyboardButton(
-        "📥 Emotecraft",
+        "📥 Скачать Emotecraft",
         url="https://modrinth.com/mod/emotecraft"
     ))
     
@@ -398,7 +429,8 @@ def help_msg(message):
 
 @bot.message_handler(commands=['numbers'])
 def show_all_numbers(message):
-    if message.from_user.id != ADMIN_ID:
+    # Проверяем, что админ есть в списке
+    if message.from_user.id not in ADMIN_IDS:
         return
     
     numbers_text = "📋 **Все номера для оплаты:**\n\n"
@@ -438,7 +470,9 @@ if __name__ == '__main__':
     print("=" * 50)
     print(f"💰 Режим: оплата переводом по номеру телефона")
     print(f"📦 Моды: Simple Voice, Voice Messages, Emotecraft")
-    print(f"👑 Админ ID: {ADMIN_ID}")
+    print(f"👑 Админы: {len(ADMIN_IDS)} человек")
+    for i, admin_id in enumerate(ADMIN_IDS, 1):
+        print(f"   {i}. ID: {admin_id}")
     print("🔄 Режим: поллинг (без вебхука)")
     print("=" * 50)
     
@@ -458,7 +492,6 @@ if __name__ == '__main__':
     while running and retry_count < max_retries:
         try:
             print("✅ Бот запущен и ожидает сообщения...")
-            # Используем инфраструктуру с меньшим таймаутом
             bot.polling(none_stop=True, interval=1, timeout=30, skip_pending=True)
         except Exception as e:
             retry_count += 1
