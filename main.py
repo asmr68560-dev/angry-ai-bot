@@ -8,6 +8,7 @@ import threading
 import requests
 import atexit
 import logging
+from flask import Flask
 
 # Жесткий сброс ВСЕХ подключений перед стартом
 def hard_reset_bot():
@@ -594,6 +595,32 @@ def keep_alive():
             logger.info(f"✅ Пинг бота: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         except Exception as e:
             logger.error(f"❌ Ошибка пинга: {e}")
+
+# ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
+from flask import Flask
+import threading
+
+# Создаем простой веб-сервер
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "✅ Бот работает!", 200
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+def run_web_server():
+    """Запускаем веб-сервер на порту 10000"""
+    port = int(os.getenv('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
+
+# Запускаем веб-сервер в отдельном потоке
+web_thread = threading.Thread(target=run_web_server, daemon=True)
+web_thread.start()
+print(f"✅ Веб-сервер запущен на порту {os.getenv('PORT', 10000)}")
+# ===========================================
 
 if __name__ == '__main__':
     print("=" * 60)
