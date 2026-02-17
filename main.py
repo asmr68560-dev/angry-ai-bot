@@ -9,6 +9,40 @@ import requests
 import atexit
 import logging
 
+# Жесткий сброс ВСЕХ подключений перед стартом
+def hard_reset_bot():
+    """Принудительный сброс всех подключений бота"""
+    token = os.getenv('BOT_TOKEN')
+    if not token:
+        return
+    
+    print("🔄 ЖЕСТКИЙ СБРОС ПОДКЛЮЧЕНИЙ...")
+    
+    try:
+        # 1. Закрываем все активные сессии
+        close_url = f"https://api.telegram.org/bot{token}/close"
+        close_response = requests.post(close_url)
+        print(f"📡 Close session: {close_response.status_code}")
+        time.sleep(2)
+        
+        # 2. Удаляем вебхук
+        webhook_url = f"https://api.telegram.org/bot{token}/deleteWebhook"
+        webhook_response = requests.post(webhook_url, json={"drop_pending_updates": True})
+        print(f"📡 Delete webhook: {webhook_response.status_code}")
+        time.sleep(2)
+        
+        # 3. Проверяем статус
+        info_url = f"https://api.telegram.org/bot{token}/getWebhookInfo"
+        info_response = requests.get(info_url)
+        print(f"📡 Webhook info: {info_response.json()}")
+        
+        print("✅ Сброс завершен!")
+    except Exception as e:
+        print(f"❌ Ошибка при сбросе: {e}")
+
+# Вызываем ДО инициализации бота
+hard_reset_bot()
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -34,36 +68,14 @@ if not TOKEN:
     logger.error("❌ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
     sys.exit(1)
 
-# Функция для полной очистки вебхука
-def cleanup_telegram():
-    """Принудительно очищаем все предыдущие подключения"""
-    try:
-        url = f"https://api.telegram.org/bot{TOKEN}/deleteWebhook"
-        response = requests.post(url, json={"drop_pending_updates": True})
-        logger.info(f"✅ Вебхук удален: {response.status_code == 200}")
-        
-        url = f"https://api.telegram.org/bot{TOKEN}/close"
-        response = requests.post(url)
-        logger.info(f"✅ Сессии закрыты: {response.status_code == 200}")
-        
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка очистки: {e}")
-        return False
-
-# Очищаем перед запуском
-logger.info("🔄 Очистка предыдущих подключений...")
-cleanup_telegram()
-time.sleep(2)
-
 # Инициализация бота
 bot = telebot.TeleBot(TOKEN)
 
 # Конфигурация
 PAYMENT_NUMBERS = [
-    ["🎮 Проходка на один сезон - 25 руб", "+7 (932) 304-57-76"],
-    ["⭐️ Проходка на всегда - 85 руб", "+7 (932) 304-57-76"],
-    ["👑 Улучшение проходки - 60 руб", "+7 (932) 304-57-76"]
+    ["🎮 Проходка на один сезон - 25 руб", "+7 (932) 304-54-76"],
+    ["⭐️ Проходка на всегда - 85 руб", "+7 (932) 304-54-76"],
+    ["👑 Улучшение проходки - 60 руб", "+7 (932) 304-54-76"]
 ]
 
 MOD_LINKS = [
@@ -88,20 +100,18 @@ def signal_handler(signum, frame):
     running = False
     try:
         bot.stop_polling()
-        cleanup_telegram()
     except:
         pass
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
-atexit.register(lambda: cleanup_telegram())
 
 def is_admin(user_id):
     """Проверяет, является ли пользователь админом"""
     return user_id in ADMIN_IDS
 
-@bot.message_handler(commands=['start'])
+@bot.message_handler(commands=['start', 'restart'])
 def start(message):
     user_id = str(message.from_user.id)
     users[user_id] = {}
@@ -119,6 +129,25 @@ def start(message):
         "📦 Моды - скачать моды для сервера",
         reply_markup=markup
     )
+
+@bot.message_handler(commands=['status'])
+def bot_status(message):
+    """Проверка статуса бота"""
+    if not is_admin(message.from_user.id):
+        return
+    
+    # Проверяем подключение к Telegram
+    try:
+        me = bot.get_me()
+        status = f"✅ **Бот @{me.username} работает**\n\n"
+        status += f"🆔 ID: `{me.id}`\n"
+        status += f"👥 Админов: {len(ADMIN_IDS)}\n"
+        status += f"👤 Пользователей в памяти: {len(users)}\n"
+        status += f"🔄 Режим: поллинг"
+    except Exception as e:
+        status = f"❌ **Бот НЕ отвечает!**\n\nОшибка: {e}"
+    
+    bot.send_message(message.chat.id, status, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda m: m.text == "💰 Тарифы")
 def show_tariffs(message):
@@ -269,7 +298,6 @@ def get_nickname(message):
     
     if sent_count == 0:
         logger.error("🚨 НИ ОДНОМУ АДМИНУ НЕ ОТПРАВЛЕНА ЗАЯВКА!")
-        # Отправляем первому админу для проверкиtry:
         try:
             bot.send_message(ADMIN_IDS[0], f"⚠️ КРИТИЧЕСКАЯ ОШИБКА: Заявка от {user_id} не доставлена админам!\n\n{admin_msg}", parse_mode='Markdown')
         except:
@@ -296,7 +324,6 @@ def admin_confirm(call):
     
     if user_id not in users:
         bot.answer_callback_query(call.id, "❌ Пользователь не найден в базе")
-        # Но всё равно пробуем отправить доступ
         user_id_int = int(user_id)
     else:
         user_id_int = int(user_id)
@@ -521,7 +548,7 @@ def broadcast(message):
     
     msg = bot.send_message(
         message.chat.id,
-        "📢 Введитесообщение для рассылки всем пользователям:"
+        "📢 Введите сообщение для рассылки всем пользователям:"
     )
     bot.register_next_step_handler(msg, process_broadcast)
 
@@ -537,7 +564,7 @@ def process_broadcast(message):
         try:
             bot.send_message(int(user_id), f"📢 **Рассылка:**\n\n{text}", parse_mode='Markdown')
             sent += 1
-            time.sleep(0.05)  # Чтобы не превысить лимиты Telegram
+            time.sleep(0.05)
         except:
             failed += 1
     
@@ -561,7 +588,7 @@ def other(message):
 def keep_alive():
     """Функция для поддержания активности на Render"""
     while running:
-        time.sleep(300)  # Каждые 5 минут
+        time.sleep(300)
         try:
             bot.get_me()
             logger.info(f"✅ Пинг бота: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -587,38 +614,20 @@ if __name__ == '__main__':
             bot.send_chat_action(admin_id, 'typing')
             logger.info(f"✅ Админ {admin_id} доступен")
         except:
-            logger.warning(f"⚠️ Админ {admin_id} НЕДОСТУПЕН (возможно не начал чат с ботом)")
-    
-    # Финальная очистка перед запуском
-    logger.info("🔄 Финальная очистка подключений...")
-    cleanup_telegram()
-    time.sleep(3)
+            logger.warning(f"⚠️ Админ {admin_id} НЕДОСТУПЕН (нужно написать боту /start)")
     
     # Запускаем поток для поддержания активности
     alive_thread = threading.Thread(target=keep_alive, daemon=True)
     alive_thread.start()
     
-    # Запускаем бота с обработкой ошибок
-    retry_count = 0
-    max_retries = 10
+    # Простой и надежный запуск
+    logger.info("✅ Бот запущен и ожидает сообщения...")
     
-    while running and retry_count < max_retries:
+    while running:
         try:
-            logger.info("✅ Бот запущен и ожидает сообщения...")
-            bot.polling(none_stop=True, interval=1, timeout=30, skip_pending=True)
+            bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
         except Exception as e:
-            retry_count += 1
-            logger.error(f"❌ Ошибка polling (попытка {retry_count}/{max_retries}): {e}")
-            
-            if "409" in str(e):
-                logger.info("🔄 Обнаружен конфликт, выполняем глубокую очистку...")
-                cleanup_telegram()
-                time.sleep(5)
-            
-            if running and retry_count < max_retries:
-                wait_time = min(30, 5 * retry_count)
-                logger.info(f"🔄 Перезапуск через {wait_time} секунд...")
-                time.sleep(wait_time)
-            else:
-                logger.error("❌ Превышено количество попыток перезапуска")
-                break
+            logger.error(f"❌ Ошибка polling: {e}")
+            if running:
+                logger.info("🔄 Перезапуск через 10 секунд...")
+                time.sleep(10)
