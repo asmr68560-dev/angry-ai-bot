@@ -588,13 +588,20 @@ def other(message):
 
 def keep_alive():
     """Функция для поддержания активности на Render"""
+    fail_count = 0
     while running:
-        time.sleep(300)
+        time.sleep(240)  # Каждые 4 минуты (меньше чем 5)
         try:
             bot.get_me()
             logger.info(f"✅ Пинг бота: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            fail_count = 0  # Сбрасываем счетчик при успехе
         except Exception as e:
-            logger.error(f"❌ Ошибка пинга: {e}")
+            fail_count += 1
+            logger.error(f"❌ Ошибка пинга ({fail_count}): {e}")
+            # Если много ошибок подряд - ничего страшного, main цикл перезапустит бота
+            if fail_count > 3:
+                logger.warning("⚠️ Много ошибок пинга, но main цикл всё исправит")
+                fail_count = 0
 
 # ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
 from flask import Flask
@@ -647,14 +654,32 @@ if __name__ == '__main__':
     alive_thread = threading.Thread(target=keep_alive, daemon=True)
     alive_thread.start()
     
-    # Простой и надежный запуск
+    # Запускаем веб-сервер (если он уже есть в коде)
+    
+    # ===== НОВЫЙ НАДЕЖНЫЙ ЦИКЛ ЗАПУСКА =====
     logger.info("✅ Бот запущен и ожидает сообщения...")
     
+    crash_count = 0
     while running:
         try:
+            # Пытаемся запустить бота
             bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
+        except requests.exceptions.ConnectionError as e:
+            # Это ожидаемая ошибка - просто перезапускаем
+            crash_count += 1
+            logger.error(f"❌ Ошибка соединения ({crash_count}): {e}")
+            logger.info("🔄 Перезапуск через 5 секунд...")
+            time.sleep(5)
+            crash_count = 0  # Сбрасываем счетчик при успешном перезапуске
         except Exception as e:
-            logger.error(f"❌ Ошибка polling: {e}")
-            if running:
-                logger.info("🔄 Перезапуск через 10 секунд...")
+            # Другие ошибки
+            crash_count += 1
+            logger.error(f"❌ Неожиданная ошибка ({crash_count}): {e}")
+            
+            if crash_count > 5:
+                logger.critical("⚠️ Слишком много ошибок подряд. Ждем 60 секунд...")
+                time.sleep(60)
+                crash_count = 0
+            else:
+                logger.info(f"🔄 Перезапуск через 10 секунд...")
                 time.sleep(10)
