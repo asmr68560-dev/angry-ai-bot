@@ -3,6 +3,33 @@ from telebot import types
 import os
 import time
 import requests
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+# ===== ФИКТИВНЫЙ ВЕБ-СЕРВЕР ДЛЯ RENDER =====
+# Это нужно, чтобы Render не убивал бота (ему нужен открытый порт)
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Bot is running!')
+    
+    def log_message(self, format, *args):
+        pass  # Отключаем логирование
+
+def run_health_server():
+    """Запускает HTTP сервер на порту 10000 для Health Check"""
+    port = int(os.getenv('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"✅ Health check server running on port {port}")
+    server.serve_forever()
+
+# Запускаем health check сервер в отдельном потоке
+health_thread = threading.Thread(target=run_health_server, daemon=True)
+health_thread.start()
+time.sleep(1)  # Даем время запуститься
+# ===========================================
 
 # ===== НАСТРОЙКИ =====
 TOKEN = os.getenv('BOT_TOKEN')
@@ -13,6 +40,10 @@ ADMIN_IDS = [
     6108135706,  # админ 2
     5330661807,  # админ 3
 ]
+
+if not TOKEN:
+    print("❌ ОШИБКА: BOT_TOKEN не найден!")
+    exit(1)
 
 # Конфигурация
 PAYMENT_NUMBERS = [
@@ -39,13 +70,12 @@ def delete_webhook():
         print(f"✅ Вебхук удален: {response.status_code == 200}")
         return True
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        print(f"❌ Ошибка удаления вебхука: {e}")
         return False
 
 # Удаляем вебхук перед запуском
-print("🔄 Удаление вебхука...")
 delete_webhook()
-time.sleep(2)
+time.sleep(1)
 
 # ===== ИНИЦИАЛИЗАЦИЯ БОТА =====
 bot = telebot.TeleBot(TOKEN)
@@ -234,6 +264,7 @@ def admin_confirm(call):
     nickname = users[user_id].get('nick', 'игрок')
     tariff = users[user_id].get('tariff', 'тариф')
     
+    # Отправляем пользователю сообщение об одобрении
     try:
         bot.send_message(
             user_id,
@@ -263,31 +294,37 @@ def admin_confirm(call):
         ))
         
         bot.send_message(user_id, mods_text, parse_mode='Markdown', reply_markup=markup)
-        bot.send_message(user_id, "🎮 **Удачной игры!**", parse_mode='Markdown')
+        bot.send_message(user_id, "🎮 **Удачной игры на сервере!**", parse_mode='Markdown')
+        
+        print(f"✅ Пользователю {user_id} отправлено подтверждение")
         
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        print(f"❌ Ошибка отправки пользователю: {e}")
     
     bot.answer_callback_query(call.id, "✅ Доступ выдан")
     
-    # Уведомляем других админов
+    # Уведомляем других админов, что заявка обработана
     for admin_id in ADMIN_IDS:
         if admin_id != call.from_user.id:
             try:
                 bot.send_message(
                     admin_id,
-                    f"✅ Админ подтвердил оплату для {nickname}"
+                    f"✅ Админ @{call.from_user.username or 'админ'} подтвердил оплату для {nickname}"
                 )
             except:
                 pass
     
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=call.message.text + "\n\n✅ **ПОДТВЕРЖДЕНО** ✅",
-        parse_mode='Markdown',
-        reply_markup=None
-    )
+    # Обновляем сообщение с заявкой
+    try:
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=call.message.text + "\n\n✅ **ПОДТВЕРЖДЕНО** ✅",
+            parse_mode='Markdown',
+            reply_markup=None
+        )
+    except:
+        pass
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('reject_'))
 def admin_reject(call):
@@ -297,98 +334,146 @@ def admin_reject(call):
     
     user_id = int(call.data.split('_')[1])
     
+    # Отправляем пользователю сообщение об отказе
     try:
         bot.send_message(
             user_id,
-            "❌ **Заявка отклонена**\n\n"
+            "❌ **Ваша заявка отклонена**\n\n"
             "Возможные причины:\n"
             "• Не подтверждена оплата\n"
-            "• Не получен перевод\n\n"
-            "📞 Свяжитесь с поддержкой"
+            "• Не получен перевод\n"
+            "• Некорректные данные\n\n"
+            "📞 Для уточнения свяжитесь с поддержкой"
+        )
+        print(f"✅ Пользователю {user_id} отправлен отказ")
+    except Exception as e:
+        print(f"❌ Ошибка отправки пользователю: {e}")
+    
+    bot.answer_callback_query(call.id, "❌ Заявка отклонена")
+    
+    # Уведомляем других админов
+    for admin_id in ADMIN_IDS:
+        if admin_id != call.from_user.id:
+            try:
+                bot.send_message(
+                    admin_id,
+                    f"❌ Админ @{call.from_user.username or 'админ'} отклонил заявку"
+                )
+            except:
+                pass
+    
+    # Обновляем сообщение с заявкой
+    try:
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=call.message.text + "\n\n❌ **ОТКЛОНЕНО** ❌",
+            parse_mode='Markdown',
+            reply_markup=None
         )
     except:
         pass
-    
-    bot.answer_callback_query(call.id, "❌ Отклонено")
-    
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=call.message.text + "\n\n❌ **ОТКЛОНЕНО** ❌",
-        parse_mode='Markdown',
-        reply_markup=None
-    )
 
 @bot.message_handler(func=lambda m: m.text == "📦 Моды")
 def show_mods(message):
     mods_text = (
-        "📦 **Моды для сервера:**\n\n"
+        "📦 **Для комфортной игры на нашем сервере рекомендуем скачать эти моды:**\n\n"
         f"{MOD_LINKS[0]}\n\n"
         f"{MOD_LINKS[1]}\n\n"
         f"{MOD_LINKS[2]}\n\n"
-        "💡 **Установка:**\n"
-        "1. Скачай Fabric 1.21.11\n"
-        "2. Положи моды в .minecraft/mods\n"
+        "💡 **Как установить:**\n"
+        "1. Скачай Fabric для версии 1.21.11\n"
+        "2. Помести моды в папку .minecraft/mods\n"
         "3. Запусти игру через Fabric"
     )
     
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("📥 Simple Voice Chat", url="https://modrinth.com/mod/simple-voice-chat"))
-    markup.add(types.InlineKeyboardButton("📥 Voice Messages", url="https://modrinth.com/mod/voice-messages"))
-    markup.add(types.InlineKeyboardButton("📥 Emotecraft", url="https://modrinth.com/mod/emotecraft"))
+    markup.add(types.InlineKeyboardButton(
+        "📥 Simple Voice Chat",
+        url="https://modrinth.com/mod/simple-voice-chat"
+    ))
+    markup.add(types.InlineKeyboardButton(
+        "📥 Voice Messages",
+        url="https://modrinth.com/mod/voice-messages"
+    ))
+    markup.add(types.InlineKeyboardButton(
+        "📥 Emotecraft",
+        url="https://modrinth.com/mod/emotecraft"
+    ))
     
-    bot.send_message(message.chat.id, mods_text, parse_mode='Markdown', reply_markup=markup)
+    bot.send_message(
+        message.chat.id,
+        mods_text,
+        parse_mode='Markdown',
+        reply_markup=markup
+    )
 
 @bot.message_handler(func=lambda m: m.text == "❓ Помощь")
 def help_msg(message):
     help_text = (
-        "💳 **Как оплатить:**\n"
+        "💳 **Как оплатить переводом:**\n"
         "1. Нажми '💰 Тарифы'\n"
         "2. Выбери тариф\n"
-        "3. Переведи деньги\n"
-        "4. Нажми '✅ Я перевел'\n"
-        "5. Напиши ник\n\n"
+        "3. Переведи деньги на указанный номер\n"
+        "4. Нажми '✅ Я перевел деньги'\n"
+        "5. Напиши свой ник Minecraft\n"
+        "6. Жди подтверждения от администратора\n\n"
         "📦 **Моды:**\n"
-        "Нажми '📦 Моды' для скачивания"
+        "Нажми '📦 Моды' чтобы скачать моды для сервера"
     )
     
-    bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
+    bot.send_message(
+        message.chat.id,
+        help_text,
+        parse_mode='Markdown'
+    )
 
 @bot.message_handler(commands=['numbers'])
 def show_numbers(message):
     if message.from_user.id not in ADMIN_IDS:
         return
     
-    text = "📋 **Номера для оплаты:**\n\n"
-    for name, number in PAYMENT_NUMBERS:
-        text += f"{name}\n📱 `{number}`\n\n"
+    numbers_text = "📋 **Все номера для оплаты:**\n\n"
     
-    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+    for name, number in PAYMENT_NUMBERS:
+        numbers_text += f"{name}\n📱 `{number}`\n\n"
+    
+    bot.send_message(
+        message.chat.id,
+        numbers_text,
+        parse_mode='Markdown'
+    )
 
 @bot.message_handler(func=lambda m: True)
 def other(message):
     bot.send_message(
         message.chat.id,
         "Используй кнопки меню:\n"
-        "💰 Тарифы\n📦 Моды\n❓ Помощь"
+        "💰 Тарифы - номера для перевода\n"
+        "📦 Моды - скачать моды\n"
+        "❓ Помощь - связь с поддержкой"
     )
 
 # ===== ЗАПУСК =====
 if __name__ == '__main__':
-    print("=" * 40)
-    print("🤖 БОТ ЗАПУЩЕН")
-    print("=" * 40)
-    print(f"👑 Админы: {len(ADMIN_IDS)}")
+    print("=" * 50)
+    print("🤖 ЗАПУСК БОТА НА RENDER")
+    print("=" * 50)
+    print(f"👑 Админы ({len(ADMIN_IDS)}):")
     for admin_id in ADMIN_IDS:
         print(f"   • {admin_id}")
-    print("=" * 40)
+    print(f"🌐 Health check port: 10000")
+    print("=" * 50)
     
     # Бесконечный цикл с перезапуском при ошибке
+    retry_count = 0
     while True:
         try:
+            print("✅ Бот запущен и ожидает сообщения...")
             bot.polling(none_stop=True, interval=1, timeout=30)
         except Exception as e:
-            print(f"❌ Ошибка: {e}")
+            retry_count += 1
+            print(f"❌ Ошибка ({retry_count}): {e}")
             print("🔄 Перезапуск через 5 секунд...")
             delete_webhook()
             time.sleep(5)
