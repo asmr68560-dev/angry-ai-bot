@@ -7,7 +7,6 @@ import time
 import threading
 import requests
 import atexit
-import re
 import logging
 
 # Настройка логирования
@@ -104,8 +103,8 @@ def is_admin(user_id):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    user_id = message.from_user.id
-    users[str(user_id)] = {}
+    user_id = str(message.from_user.id)
+    users[user_id] = {}
     logger.info(f"👤 Новый пользователь: {user_id}")
     
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -217,36 +216,17 @@ def paid(call):
     
     bot.register_next_step_handler(call.message, get_nickname)
 
-def clean_nickname(nick):
-    """Очищает ник от недопустимых символов"""
-    # Оставляем только латиницу, цифры и подчеркивание
-    cleaned = re.sub(r'[^a-zA-Z0-9_]', '', nick)
-    return cleaned
-
 def get_nickname(message):
     user_id = str(message.from_user.id)
     username = message.from_user.username or "без username"
     
-    # Очищаем ник от недопустимых символов
-    clean_nick = clean_nickname(message.text)
-    
-    if not clean_nick:
-        bot.send_message(
-            message.chat.id,
-            "❌ **Ошибка в нике!**\n\n"
-            "Ник может содержать только:\n"
-            "• Латинские буквы (A-Z, a-z)\n"
-            "• Цифры (0-9)\n"
-            "• Нижнее подчеркивание (_)\n\n"
-            "Пожалуйста, напиши ник еще раз:"
-        )
-        bot.register_next_step_handler(message, get_nickname)
-        return
+    # Принимаем любой текст без проверок
+    user_nick = message.text
     
     if user_id not in users:
         users[user_id] = {}
     
-    users[user_id]['nick'] = clean_nick
+    users[user_id]['nick'] = user_nick
     
     tariff_info = users[user_id].get('tariff', 'Не выбран')
     number_info = users[user_id].get('number', 'Не указан')
@@ -256,7 +236,7 @@ def get_nickname(message):
         f"🆕 **НОВАЯ ЗАЯВКА НА ОПЛАТУ!**\n\n"
         f"👤 **Пользователь:** @{username}\n"
         f"🆔 **ID:** `{user_id}`\n"
-        f"🎮 **Ник Minecraft:** `{clean_nick}`\n"
+        f"🎮 **Ник Minecraft:** `{user_nick}`\n"
         f"💰 **Тариф:** {tariff_info}\n"
         f"📱 **Номер:** {number_info}\n"
     )
@@ -289,8 +269,7 @@ def get_nickname(message):
     
     if sent_count == 0:
         logger.error("🚨 НИ ОДНОМУ АДМИНУ НЕ ОТПРАВЛЕНА ЗАЯВКА!")
-        # Отправляем самому себе для проверки
-        try:
+        # Отправляем первому админу для проверкиtry:
             bot.send_message(ADMIN_IDS[0], f"⚠️ КРИТИЧЕСКАЯ ОШИБКА: Заявка от {user_id} не доставлена админам!\n\n{admin_msg}", parse_mode='Markdown')
         except:
             pass
@@ -541,7 +520,7 @@ def broadcast(message):
     
     msg = bot.send_message(
         message.chat.id,
-        "📢 Введите сообщение для рассылки всем пользователям:"
+        "📢 Введитесообщение для рассылки всем пользователям:"
     )
     bot.register_next_step_handler(msg, process_broadcast)
 
@@ -641,5 +620,4 @@ if __name__ == '__main__':
                 time.sleep(wait_time)
             else:
                 logger.error("❌ Превышено количество попыток перезапуска")
-                ):
                 break
