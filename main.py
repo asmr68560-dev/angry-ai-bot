@@ -1,60 +1,18 @@
 import telebot
 from telebot import types
 import os
-import signal
-import sys
 import time
-import threading
 import requests
-import atexit
 
-# Настройки из переменных окружения
+# ===== НАСТРОЙКИ =====
 TOKEN = os.getenv('BOT_TOKEN')
 
-# ===== СПИСОК ВСЕХ АДМИНОВ (ВСЕ РАВНЫ) =====
+# СПИСОК АДМИНОВ (ВСЕ РАВНЫ)
 ADMIN_IDS = [
-    913566244,   # ваш ID
-    6108135706,  # первый админ
-    5330661807,  # второй админ
+    913566244,   # вы
+    6108135706,  # админ 2
+    5330661807,  # админ 3
 ]
-
-if not TOKEN:
-    print("❌ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
-    sys.exit(1)
-
-# Функция для полной очистки вебхука и завершения всех сессий
-def cleanup_telegram():
-    """Принудительно очищаем все предыдущие подключения"""
-    try:
-        # 1. Удаляем вебхук и сбрасываем все ожидающие обновления
-        url = f"https://api.telegram.org/bot{TOKEN}/deleteWebhook"
-        response = requests.post(url, json={"drop_pending_updates": True})
-        print(f"✅ Вебхук удален: {response.status_code == 200}")
-        
-        # 2. Закрываем все активные сессии getUpdates
-        url = f"https://api.telegram.org/bot{TOKEN}/close"
-        response = requests.post(url)
-        print(f"✅ Сессии закрыты: {response.status_code == 200}")
-        
-        # 3. Получаем информацию о боте для проверки
-        url = f"https://api.telegram.org/bot{TOKEN}/getMe"
-        response = requests.get(url)
-        if response.status_code == 200:
-            bot_info = response.json()
-            print(f"✅ Бот: @{bot_info['result']['username']}")
-        
-        return True
-    except Exception as e:
-        print(f"❌ Ошибка очистки: {e}")
-        return False
-
-# Очищаем перед запуском
-print("🔄 Очистка предыдущих подключений...")
-cleanup_telegram()
-time.sleep(2)  # Даем время на очистку
-
-# Инициализация бота
-bot = telebot.TeleBot(TOKEN)
 
 # Конфигурация
 PAYMENT_NUMBERS = [
@@ -72,30 +30,30 @@ MOD_LINKS = [
 SERVER_IP = "Oxidized.minerent.io"
 SERVER_VERSION = "1.21.11 Fabric"
 
+# ===== ФУНКЦИЯ УДАЛЕНИЯ ВЕБХУКА =====
+def delete_webhook():
+    """Принудительно удаляем вебхук"""
+    try:
+        url = f"https://api.telegram.org/bot{TOKEN}/deleteWebhook"
+        response = requests.post(url, json={"drop_pending_updates": True})
+        print(f"✅ Вебхук удален: {response.status_code == 200}")
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")
+        return False
+
+# Удаляем вебхук перед запуском
+print("🔄 Удаление вебхука...")
+delete_webhook()
+time.sleep(2)
+
+# ===== ИНИЦИАЛИЗАЦИЯ БОТА =====
+bot = telebot.TeleBot(TOKEN)
+
 # Хранилище пользователей
 users = {}
 
-# Флаг для остановки бота
-running = True
-
-def signal_handler(signum, frame):
-    """Обработка сигналов остановки"""
-    global running
-    print("\n🛑 Получен сигнал остановки, завершаем работу...")
-    running = False
-    try:
-        bot.stop_polling()
-        cleanup_telegram()
-    except:
-        pass
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
-
-# Регистрируем очистку при выходе
-atexit.register(lambda: cleanup_telegram())
-
+# ===== ОБРАБОТЧИКИ =====
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
@@ -220,7 +178,7 @@ def get_nickname(message):
     tariff_info = users[user_id].get('tariff', 'Не выбран')
     number_info = users[user_id].get('number', 'Не указан')
     
-    # Отправляем ВСЕМ админам
+    # Сообщение для админов
     admin_msg = (
         f"🆕 **НОВАЯ ЗАЯВКА НА ОПЛАТУ!**\n\n"
         f"👤 **Пользователь:** @{username}\n"
@@ -244,7 +202,7 @@ def get_nickname(message):
         url=f"tg://user?id={user_id}"
     ))
     
-    # Отправляем каждому админу из списка
+    # Отправляем ВСЕМ админам
     for admin_id in ADMIN_IDS:
         try:
             bot.send_message(admin_id, admin_msg, parse_mode='Markdown', reply_markup=markup)
@@ -264,13 +222,13 @@ def get_nickname(message):
 def admin_confirm(call):
     # Проверяем, что админ есть в списке
     if call.from_user.id not in ADMIN_IDS:
-        bot.answer_callback_query(call.id, "❌ У вас нет прав администратора")
+        bot.answer_callback_query(call.id, "❌ У вас нет прав")
         return
     
     user_id = int(call.data.split('_')[1])
     
     if user_id not in users:
-        bot.answer_callback_query(call.id, "❌ Пользователь не найден в базе")
+        bot.answer_callback_query(call.id, "❌ Пользователь не найден")
         return
     
     nickname = users[user_id].get('nick', 'игрок')
@@ -284,7 +242,7 @@ def admin_confirm(call):
             f"📡 **Данные сервера:**\n"
             f"🌐 IP: `{SERVER_IP}`\n"
             f"📦 Версия: `{SERVER_VERSION}`\n\n"
-            f"👇 **Для комфортной игры на нашем сервере рекомендуем скачать эти моды:**",
+            f"👇 **Моды для комфортной игры:**",
             parse_mode='Markdown'
         )
         
@@ -292,43 +250,33 @@ def admin_confirm(call):
         
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton(
-            "📥 Скачать Simple Voice Chat",
+            "📥 Simple Voice Chat",
             url="https://modrinth.com/mod/simple-voice-chat"
         ))
         markup.add(types.InlineKeyboardButton(
-            "📥 Скачать Voice Messages",
+            "📥 Voice Messages",
             url="https://modrinth.com/mod/voice-messages"
         ))
         markup.add(types.InlineKeyboardButton(
-            "📥 Скачать Emotecraft",
+            "📥 Emotecraft",
             url="https://modrinth.com/mod/emotecraft"
         ))
         
-        bot.send_message(
-            user_id,
-            mods_text,
-            parse_mode='Markdown',
-            reply_markup=markup
-        )
+        bot.send_message(user_id, mods_text, parse_mode='Markdown', reply_markup=markup)
+        bot.send_message(user_id, "🎮 **Удачной игры!**", parse_mode='Markdown')
         
-        bot.send_message(
-            user_id,
-            "🎮 **Удачной игры на сервере!**",
-            parse_mode='Markdown'
-        )
     except Exception as e:
-        print(f"❌ Ошибка отправки пользователю: {e}")
+        print(f"❌ Ошибка: {e}")
     
     bot.answer_callback_query(call.id, "✅ Доступ выдан")
     
-    # Уведомляем других админов, что заявка обработана
+    # Уведомляем других админов
     for admin_id in ADMIN_IDS:
-        if admin_id != call.from_user.id:  # не отправляем тому, кто подтвердил
+        if admin_id != call.from_user.id:
             try:
                 bot.send_message(
                     admin_id,
-                    f"✅ Админ @{call.from_user.username or 'админ'} подтвердил оплату для пользователя {nickname}",
-                    parse_mode='Markdown'
+                    f"✅ Админ подтвердил оплату для {nickname}"
                 )
             except:
                 pass
@@ -336,16 +284,15 @@ def admin_confirm(call):
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text=call.message.text + "\n\n✅ **ОПЛАТА ПОДТВЕРЖДЕНА** ✅",
+        text=call.message.text + "\n\n✅ **ПОДТВЕРЖДЕНО** ✅",
         parse_mode='Markdown',
         reply_markup=None
     )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('reject_'))
 def admin_reject(call):
-    # Проверяем, что админ есть в списке
     if call.from_user.id not in ADMIN_IDS:
-        bot.answer_callback_query(call.id, "❌ У вас нет прав администратора")
+        bot.answer_callback_query(call.id, "❌ У вас нет прав")
         return
     
     user_id = int(call.data.split('_')[1])
@@ -353,17 +300,16 @@ def admin_reject(call):
     try:
         bot.send_message(
             user_id,
-            "❌ **Ваша заявка отклонена**\n\n"
+            "❌ **Заявка отклонена**\n\n"
             "Возможные причины:\n"
             "• Не подтверждена оплата\n"
-            "• Не получен перевод\n"
-            "• Некорректные данные\n\n"
-            "📞 Для уточнения свяжитесь с поддержкой"
+            "• Не получен перевод\n\n"
+            "📞 Свяжитесь с поддержкой"
         )
-    except Exception as e:
-        print(f"❌ Ошибка отправки пользователю: {e}")
+    except:
+        pass
     
-    bot.answer_callback_query(call.id, "❌ Заявка отклонена")
+    bot.answer_callback_query(call.id, "❌ Отклонено")
     
     bot.edit_message_text(
         chat_id=call.message.chat.id,
@@ -376,135 +322,73 @@ def admin_reject(call):
 @bot.message_handler(func=lambda m: m.text == "📦 Моды")
 def show_mods(message):
     mods_text = (
-        "📦 **Для комфортной игры на нашем сервере рекомендуем скачать эти моды:**\n\n"
+        "📦 **Моды для сервера:**\n\n"
         f"{MOD_LINKS[0]}\n\n"
         f"{MOD_LINKS[1]}\n\n"
         f"{MOD_LINKS[2]}\n\n"
-        "💡 **Как установить:**\n"
-        "1. Скачай Fabric для версии 1.21.11\n"
-        "2. Помести моды в папку .minecraft/mods\n"
-        "3. Запусти игру через Fabriс"
+        "💡 **Установка:**\n"
+        "1. Скачай Fabric 1.21.11\n"
+        "2. Положи моды в .minecraft/mods\n"
+        "3. Запусти игру через Fabric"
     )
     
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(
-        "📥 Скачать Simple Voice Chat",
-        url="https://modrinth.com/mod/simple-voice-chat"
-    ))
-    markup.add(types.InlineKeyboardButton(
-        "📥 Скачать Voice Messages",
-        url="https://modrinth.com/mod/voice-messages"
-    ))
-    markup.add(types.InlineKeyboardButton(
-        "📥 Скачать Emotecraft",
-        url="https://modrinth.com/mod/emotecraft"
-    ))
+    markup.add(types.InlineKeyboardButton("📥 Simple Voice Chat", url="https://modrinth.com/mod/simple-voice-chat"))
+    markup.add(types.InlineKeyboardButton("📥 Voice Messages", url="https://modrinth.com/mod/voice-messages"))
+    markup.add(types.InlineKeyboardButton("📥 Emotecraft", url="https://modrinth.com/mod/emotecraft"))
     
-    bot.send_message(
-        message.chat.id,
-        mods_text,
-        parse_mode='Markdown',
-        reply_markup=markup
-    )
+    bot.send_message(message.chat.id, mods_text, parse_mode='Markdown', reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == "❓ Помощь")
 def help_msg(message):
     help_text = (
-        "💳 **Как оплатить переводом:**\n"
+        "💳 **Как оплатить:**\n"
         "1. Нажми '💰 Тарифы'\n"
         "2. Выбери тариф\n"
-        "3. Переведи деньги на указанный номер\n"
-        "4. Нажми '✅ Я перевел деньги'\n"
-        "5. Напиши свой ник Minecraft\n"
-        "6. Жди подтверждения от администратора\n\n"
+        "3. Переведи деньги\n"
+        "4. Нажми '✅ Я перевел'\n"
+        "5. Напиши ник\n\n"
         "📦 **Моды:**\n"
-        "Нажми '📦 Моды' чтобы скачать моды для сервера"
+        "Нажми '📦 Моды' для скачивания"
     )
     
-    bot.send_message(
-        message.chat.id,
-        help_text,
-        parse_mode='Markdown'
-    )
+    bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['numbers'])
-def show_all_numbers(message):
-    # Проверяем, что админ есть в списке
+def show_numbers(message):
     if message.from_user.id not in ADMIN_IDS:
         return
     
-    numbers_text = "📋 **Все номера для оплаты:**\n\n"
-    
+    text = "📋 **Номера для оплаты:**\n\n"
     for name, number in PAYMENT_NUMBERS:
-        numbers_text += f"{name}\n📱 `{number}`\n\n"
+        text += f"{name}\n📱 `{number}`\n\n"
     
-    bot.send_message(
-        message.chat.id,
-        numbers_text,
-        parse_mode='Markdown'
-    )
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda m: True)
 def other(message):
     bot.send_message(
         message.chat.id,
         "Используй кнопки меню:\n"
-        "💰 Тарифы - номера для перевода\n"
-        "📦 Моды - скачать моды\n"
-        "❓ Помощь - связь с поддержкой"
+        "💰 Тарифы\n📦 Моды\n❓ Помощь"
     )
 
-def keep_alive():
-    """Функция для поддержания активности на Render"""
-    while running:
-        time.sleep(300)  # Каждые 5 минут
-        try:
-            bot.get_me()
-            print(f"✅ Пинг бота: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        except Exception as e:
-            print(f"❌ Ошибка пинга: {e}")
-
+# ===== ЗАПУСК =====
 if __name__ == '__main__':
-    print("=" * 50)
-    print("🤖 ЗАПУСК БОТА НА RENDER")
-    print("=" * 50)
-    print(f"💰 Режим: оплата переводом по номеру телефона")
-    print(f"📦 Моды: Simple Voice, Voice Messages, Emotecraft")
-    print(f"👑 Админы: {len(ADMIN_IDS)} человек")
-    for i, admin_id in enumerate(ADMIN_IDS, 1):
-        print(f"   {i}. ID: {admin_id}")
-    print("🔄 Режим: поллинг (без вебхука)")
-    print("=" * 50)
+    print("=" * 40)
+    print("🤖 БОТ ЗАПУЩЕН")
+    print("=" * 40)
+    print(f"👑 Админы: {len(ADMIN_IDS)}")
+    for admin_id in ADMIN_IDS:
+        print(f"   • {admin_id}")
+    print("=" * 40)
     
-    # Финальная очистка перед запуском
-    print("🔄 Финальная очистка подключений...")
-    cleanup_telegram()
-    time.sleep(3)
-    
-    # Запускаем поток для поддержания активности
-    alive_thread = threading.Thread(target=keep_alive, daemon=True)
-    alive_thread.start()
-    
-    # Запускаем бота с обработкой ошибок
-    retry_count = 0
-    max_retries = 5
-    
-    while running and retry_count < max_retries:
+    # Бесконечный цикл с перезапуском при ошибке
+    while True:
         try:
-            print("✅ Бот запущен и ожидает сообщения...")
-            bot.polling(none_stop=True, interval=1, timeout=30, skip_pending=True)
+            bot.polling(none_stop=True, interval=1, timeout=30)
         except Exception as e:
-            retry_count += 1
-            print(f"❌ Ошибка polling (попытка {retry_count}/{max_retries}): {e}")
-            
-            if "409" in str(e):
-                print("🔄 Обнаружен конфликт, выполняем глубокую очистку...")
-                cleanup_telegram()
-                time.sleep(5)
-            
-            if running and retry_count < max_retries:
-                print(f"🔄 Перезапуск через 10 секунд...")
-                time.sleep(10)
-            else:
-                print("❌ Превышено количество попыток перезапуска")
-                break
+            print(f"❌ Ошибка: {e}")
+            print("🔄 Перезапуск через 5 секунд...")
+            delete_webhook()
+            time.sleep(5)
