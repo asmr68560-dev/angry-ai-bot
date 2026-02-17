@@ -79,9 +79,9 @@ PAYMENT_NUMBERS = [
 ]
 
 MOD_LINKS = [
-    "🔊 **Simple Voice Chat** - https://minecraft-inside.ru/mods/185344-simple-voice-chat.html",
-    "🎙 **Voice Messages** - https://modrinth.com/plugin/voicemessages",
-    "😃 **Emotecraft** - https://minecraft-inside.ru/mods/150286-emotecraft.html"
+    "🔊 <b>Simple Voice Chat</b> - https://minecraft-inside.ru/mods/185344-simple-voice-chat.html",
+    "🎙 <b>Voice Messages</b> - https://modrinth.com/plugin/voicemessages",
+    "😃 <b>Emotecraft</b> - https://minecraft-inside.ru/mods/150286-emotecraft.html"
 ]
 
 SERVER_IP = "Oxidized.minerent.io"
@@ -139,22 +139,22 @@ def bot_status(message):
     # Проверяем подключение к Telegram
     try:
         me = bot.get_me()
-        status = f"✅ **Бот @{me.username} работает**\n\n"
-        status += f"🆔 ID: `{me.id}`\n"
+        status = f"✅ <b>Бот @{me.username} работает</b>\n\n"
+        status += f"🆔 ID: <code>{me.id}</code>\n"
         status += f"👥 Админов: {len(ADMIN_IDS)}\n"
         status += f"👤 Пользователей в памяти: {len(users)}\n"
         status += f"🔄 Режим: поллинг"
     except Exception as e:
-        status = f"❌ **Бот НЕ отвечает!**\n\nОшибка: {e}"
+        status = f"❌ <b>Бот НЕ отвечает!</b>\n\nОшибка: {e}"
     
-    bot.send_message(message.chat.id, status, parse_mode='Markdown')
+    bot.send_message(message.chat.id, status, parse_mode='HTML')
 
 @bot.message_handler(func=lambda m: m.text == "💰 Тарифы")
 def show_tariffs(message):
-    tariffs_text = "💳 **Номера для перевода:**\n\n"
+    tariffs_text = "💳 <b>Номера для перевода:</b>\n\n"
     
     for i, (name, number) in enumerate(PAYMENT_NUMBERS, 1):
-        tariffs_text += f"{i}. {name}\n📱 Номер: `{number}`\n\n"
+        tariffs_text += f"{i}. {name}\n📱 Номер: <code>{number}</code>\n\n"
     
     markup = types.InlineKeyboardMarkup(row_width=1)
     for i, (name, _) in enumerate(PAYMENT_NUMBERS):
@@ -166,7 +166,7 @@ def show_tariffs(message):
     bot.send_message(
         message.chat.id,
         tariffs_text,
-        parse_mode='Markdown',
+        parse_mode='HTML',
         reply_markup=markup
     )
 
@@ -184,8 +184,8 @@ def process_tariff(call):
     
     instruction = (
         f"✅ Вы выбрали: {tariff_name}\n\n"
-        f"📱 **Номер для перевода:**\n`{tariff_number}`\n\n"
-        f"📋 **Как оплатить:**\n"
+        f"📱 <b>Номер для перевода:</b>\n<code>{tariff_number}</code>\n\n"
+        f"📋 <b>Как оплатить:</b>\n"
         f"1. Переведите деньги на этот номер\n"
         f"2. Нажмите кнопку 'Я перевел деньги'\n"
         f"3. Напишите свой ник в Minecraft"
@@ -205,7 +205,7 @@ def process_tariff(call):
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
         text=instruction,
-        parse_mode='Markdown',
+        parse_mode='HTML',
         reply_markup=markup
     )
     
@@ -213,10 +213,10 @@ def process_tariff(call):
 
 @bot.callback_query_handler(func=lambda call: call.data == "back_to_tariffs")
 def back_to_tariffs(call):
-    tariffs_text = "💳 **Номера для перевода:**\n\n"
+    tariffs_text = "💳 <b>Номера для перевода:</b>\n\n"
     
     for i, (name, number) in enumerate(PAYMENT_NUMBERS, 1):
-        tariffs_text += f"{i}. {name}\n📱 Номер: `{number}`\n\n"
+        tariffs_text += f"{i}. {name}\n📱 Номер: <code>{number}</code>\n\n"
     
     markup = types.InlineKeyboardMarkup(row_width=1)
     for i, (name, _) in enumerate(PAYMENT_NUMBERS):
@@ -229,7 +229,7 @@ def back_to_tariffs(call):
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
         text=tariffs_text,
-        parse_mode='Markdown',
+        parse_mode='HTML',
         reply_markup=markup
     )
     
@@ -262,12 +262,12 @@ def get_nickname(message):
     
     # Формируем сообщение для админов
     admin_msg = (
-        f"🆕 **НОВАЯ ЗАЯВКА НА ОПЛАТУ!**\n\n"
-        f"👤 **Пользователь:** @{username}\n"
-        f"🆔 **ID:** `{user_id}`\n"
-        f"🎮 **Ник Minecraft:** `{user_nick}`\n"
-        f"💰 **Тариф:** {tariff_info}\n"
-        f"📱 **Номер:** {number_info}\n"
+        f"🆕 <b>НОВАЯ ЗАЯВКА НА ОПЛАТУ!</b>\n\n"
+        f"👤 <b>Пользователь:</b> @{username}\n"
+        f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
+        f"🎮 <b>Ник Minecraft:</b> <code>{user_nick}</code>\n"
+        f"💰 <b>Тариф:</b> {tariff_info}\n"
+        f"📱 <b>Номер:</b> {number_info}\n"
     )
     
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -290,7 +290,7 @@ def get_nickname(message):
     sent_count = 0
     for admin_id in ADMIN_IDS:
         try:
-            bot.send_message(admin_id, admin_msg, parse_mode='Markdown', reply_markup=markup)
+            bot.send_message(admin_id, admin_msg, parse_mode='HTML', reply_markup=markup)
             logger.info(f"✅ Заявка отправлена админу {admin_id}")
             sent_count += 1
         except Exception as e:
@@ -299,16 +299,16 @@ def get_nickname(message):
     if sent_count == 0:
         logger.error("🚨 НИ ОДНОМУ АДМИНУ НЕ ОТПРАВЛЕНА ЗАЯВКА!")
         try:
-            bot.send_message(ADMIN_IDS[0], f"⚠️ КРИТИЧЕСКАЯ ОШИБКА: Заявка от {user_id} не доставлена админам!\n\n{admin_msg}", parse_mode='Markdown')
+            bot.send_message(ADMIN_IDS[0], f"⚠️ КРИТИЧЕСКАЯ ОШИБКА: Заявка от {user_id} не доставлена админам!\n\n{admin_msg}", parse_mode='HTML')
         except:
             pass
     
     bot.send_message(
         message.chat.id,
-        "✅ **Заявка отправлена!**\n\n"
+        "✅ <b>Заявка отправлена!</b>\n\n"
         "Администратор проверит оплату и выдаст доступ.\n"
         "⏳ Обычное время ожидания: от 5 минут до 24 часов.",
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
     
     logger.info(f"📨 Заявка от пользователя {user_id} обработана")
@@ -335,13 +335,13 @@ def admin_confirm(call):
         # Отправляем пользователю доступ
         bot.send_message(
             user_id_int,
-            f"🎉 **Доступ активирован!**\n\n"
+            f"🎉 <b>Доступ активирован!</b>\n\n"
             f"✅ Оплата {tariff} подтверждена!\n\n"
-            f"📡 **Данные сервера:**\n"
-            f"🌐 IP: `{SERVER_IP}`\n"
-            f"📦 Версия: `{SERVER_VERSION}`\n\n"
-            f"👇 **Для комфортной игры на нашем сервере рекомендуем скачать эти моды:**",
-            parse_mode='Markdown'
+            f"📡 <b>Данные сервера:</b>\n"
+            f"🌐 IP: <code>{SERVER_IP}</code>\n"
+            f"📦 Версия: <code>{SERVER_VERSION}</code>\n\n"
+            f"👇 <b>Для комфортной игры на нашем сервере рекомендуем скачать эти моды:</b>",
+            parse_mode='HTML'
         )
         
         mods_text = "\n\n".join(MOD_LINKS)
@@ -365,14 +365,14 @@ def admin_confirm(call):
         bot.send_message(
             user_id_int,
             mods_text,
-            parse_mode='Markdown',
+            parse_mode='HTML',
             reply_markup=markup
         )
         
         bot.send_message(
             user_id_int,
-            "🎮 **Удачной игры на сервере!**",
-            parse_mode='Markdown'
+            "🎮 <b>Удачной игры на сервере!</b>",
+            parse_mode='HTML'
         )
         
         logger.info(f"✅ Доступ выдан пользователю {user_id} админом {call.from_user.id}")
@@ -400,8 +400,8 @@ def admin_confirm(call):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=call.message.text + "\n\n✅ **ОПЛАТА ПОДТВЕРЖДЕНА** ✅",
-            parse_mode='Markdown',
+            text=call.message.text + "\n\n✅ <b>ОПЛАТА ПОДТВЕРЖДЕНА</b> ✅",
+            parse_mode='HTML',
             reply_markup=None
         )
     except:
@@ -419,7 +419,7 @@ def admin_reject(call):
     try:
         bot.send_message(
             int(user_id),
-            "❌ **Ваша заявка отклонена**\n\n"
+            "❌ <b>Ваша заявка отклонена</b>\n\n"
             "Возможные причины:\n"
             "• Не подтверждена оплата\n"
             "• Не получен перевод\n"
@@ -436,8 +436,8 @@ def admin_reject(call):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=call.message.text + "\n\n❌ **ОТКЛОНЕНО** ❌",
-            parse_mode='Markdown',
+            text=call.message.text + "\n\n❌ <b>ОТКЛОНЕНО</b> ❌",
+            parse_mode='HTML',
             reply_markup=None
         )
     except:
@@ -446,11 +446,11 @@ def admin_reject(call):
 @bot.message_handler(func=lambda m: m.text == "📦 Моды")
 def show_mods(message):
     mods_text = (
-        "📦 **Для комфортной игры на нашем сервере рекомендуем скачать эти моды:**\n\n"
+        "📦 <b>Для комфортной игры на нашем сервере рекомендуем скачать эти моды:</b>\n\n"
         f"{MOD_LINKS[0]}\n\n"
         f"{MOD_LINKS[1]}\n\n"
         f"{MOD_LINKS[2]}\n\n"
-        "💡 **Как установить:**\n"
+        "💡 <b>Как установить:</b>\n"
         "1. Скачай Fabric для версии 1.21.11\n"
         "2. Помести моды в папку .minecraft/mods\n"
         "3. Запусти игру через Fabric"
@@ -475,23 +475,23 @@ def show_mods(message):
     bot.send_message(
         message.chat.id,
         mods_text,
-        parse_mode='Markdown',
+        parse_mode='HTML',
         reply_markup=markup
     )
 
 @bot.message_handler(func=lambda m: m.text == "❓ Помощь")
 def help_msg(message):
     help_text = (
-        "💳 **Как оплатить переводом:**\n"
+        "💳 <b>Как оплатить переводом:</b>\n"
         "1. Нажми '💰 Тарифы'\n"
         "2. Выбери тариф\n"
         "3. Переведи деньги на указанный номер\n"
         "4. Нажми '✅ Я перевел деньги'\n"
         "5. Напиши свой ник Minecraft\n"
         "6. Жди подтверждения от администратора\n\n"
-        "📦 **Моды:**\n"
+        "📦 <b>Моды:</b>\n"
         "Нажми '📦 Моды' чтобы скачать моды для сервера\n\n"
-        "❓ **Проблемы:**\n"
+        "❓ <b>Проблемы:</b>\n"
         "Если заявка не отправляется - напиши сюда и мы поможем!"
     )
     
@@ -504,7 +504,7 @@ def help_msg(message):
     bot.send_message(
         message.chat.id,
         help_text,
-        parse_mode='Markdown',
+        parse_mode='HTML',
         reply_markup=markup
     )
 
@@ -514,15 +514,15 @@ def show_all_numbers(message):
     if not is_admin(message.from_user.id):
         return
     
-    numbers_text = "📋 **Все номера для оплаты:**\n\n"
+    numbers_text = "📋 <b>Все номера для оплаты:</b>\n\n"
     
     for name, number in PAYMENT_NUMBERS:
-        numbers_text += f"{name}\n📱 `{number}`\n\n"
+        numbers_text += f"{name}\n📱 <code>{number}</code>\n\n"
     
     bot.send_message(
         message.chat.id,
         numbers_text,
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 @bot.message_handler(commands=['test'])
@@ -533,11 +533,11 @@ def test_bot(message):
     
     bot.send_message(
         message.chat.id,
-        "✅ **Бот работает исправно!**\n\n"
+        f"✅ <b>Бот работает исправно!</b>\n\n"
         f"👑 Админов в списке: {len(ADMIN_IDS)}\n"
         f"👤 Пользователей в памяти: {len(users)}\n"
         f"🔄 Режим: поллинг",
-        parse_mode='Markdown'
+        parse_mode='HTML'
     )
 
 @bot.message_handler(commands=['broadcast'])
@@ -562,7 +562,7 @@ def process_broadcast(message):
     
     for user_id in users.keys():
         try:
-            bot.send_message(int(user_id), f"📢 **Рассылка:**\n\n{text}", parse_mode='Markdown')
+            bot.send_message(int(user_id), f"📢 <b>Рассылка:</b>\n\n{text}", parse_mode='HTML')
             sent += 1
             time.sleep(0.05)
         except:
