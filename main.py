@@ -386,7 +386,8 @@ def admin_confirm(call):
                     admin_id,
                     f"✅ Админ @{admin_name} подтвердил оплату для пользователя {nickname} (ID: {user_id})"
                 )
-            except:pass
+            except:
+                pass
     
     try:
         bot.edit_message_text(
