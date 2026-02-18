@@ -461,5 +461,5 @@ if __name__ == '__main__':
     # Поддержка активности
     alive_thread = threading.Thread(target=keep_alive, daemon=True)
     alive_thread.start()
-    # Запуск бота с автоматическим перезапуском при сбое
+    # Запуск бота с автоматическим перезапуском
     start_bot()
