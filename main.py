@@ -7,6 +7,17 @@ import threading
 import requests
 import logging
 from flask import Flask
+import traceback
+
+# Глобальный перехват необработанных исключений
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    print("🚨 Необработанная ошибка:", exc_type)
+    traceback.print_exception(exc_type, exc_value, exc_traceback)
+
+sys.excepthook = handle_exception
 
 # Жесткий сброс ВСЕХ подключений перед стартом
 def hard_reset_bot():
@@ -14,14 +25,11 @@ def hard_reset_bot():
     token = '8247657980:AAE7hrsVNlxoRpWRfrvvutUJNAbRpiUa_p8'
     if not token:
         return
-    
     print("🔄 ЖЕСТКИЙ СБРОС ПОДКЛЮЧЕНИЙ...")
     try:
-        close_url = f"https://api.telegram.org/bot{token}/close"
-        requests.post(close_url)
+        requests.post(f"https://api.telegram.org/bot{token}/close")
         time.sleep(1)
-        delete_webhook_url = f"https://api.telegram.org/bot{token}/deleteWebhook"
-        requests.post(delete_webhook_url, json={"drop_pending_updates": True})
+        requests.post(f"https://api.telegram.org/bot{token}/deleteWebhook", json={"drop_pending_updates": True})
         time.sleep(1)
         print("✅ Сброс завершен!")
     except Exception as e:
@@ -54,7 +62,7 @@ ADMIN_IDS = [
 # Инициализация бота
 bot = telebot.TeleBot(TOKEN)
 
-# Конфигурация
+# Конфигурации
 PAYMENT_NUMBERS = [
     ["🎮 Проходка на один сезон - 25 руб", "+7 (932) 304-54-76"],
     ["⭐️ Проходка на всегда - 85 руб", "+7 (932) 304-54-76"],
@@ -100,17 +108,17 @@ def check_admins():
         except:
             logger.warning(f"⚠️ Админ {admin_id} НЕДОСТУПЕН (нужно написать /start)")
 
-# Основная логика запуска бота с автоматическим перезапуском
+# Основной цикл бота с автоматическим перезапуском
 def start_bot():
     while True:
         try:
             bot.infinity_polling()
         except Exception as e:
-            logger.critical(f"Критическая ошибка: {e}")
-            time.sleep(5)  # задержка перед повторным запуском
+            logger.critical(f"Критическая ошибка в основном цикле: {e}")
+            traceback.print_exc()
+            time.sleep(5)
 
-# Обработчики команд и сообщений
-
+# Обработчики команд и сообщений (ваш код)
 @bot.message_handler(commands=['start', 'restart'])
 def start(message):
     user_id = str(message.from_user.id)
@@ -250,7 +258,7 @@ def admin_confirm(call):
     tariff = users.get(user_id_str, {}).get('tariff', 'тариф')
     try:
         bot.send_message(
-            user_id_int,
+            int(user_id_str),
             f"🎉 <b>Доступ активирован!</b>\n\n"
             f"✅ Оплата {tariff} подтверждена!\n\n"
             f"📡 <b>Данные сервера:</b>\n"
@@ -266,8 +274,8 @@ def admin_confirm(call):
             types.InlineKeyboardButton("📥 Voice Messages", url="https://modrinth.com/mod/voice-messages"),
             types.InlineKeyboardButton("📥 Emotecraft", url="https://modrinth.com/mod/emotecraft")
         )
-        bot.send_message(user_id_int, mods_text, parse_mode='HTML', reply_markup=markup)
-        bot.send_message(user_id_int, "🎮 <b>Удачной игры на сервере!</b>", parse_mode='HTML')
+        bot.send_message(int(user_id_str), mods_text, parse_mode='HTML', reply_markup=markup)
+        bot.send_message(int(user_id_str), "🎮 <b>Удачной игры на сервере!</b>", parse_mode='HTML')
         logger.info(f"✅ Доступ выдан пользователю {user_id_str} админом {call.from_user.id}")
     except Exception as e:
         logger.error(f"❌ Ошибка отправки пользователю {user_id_str}: {e}")
@@ -430,13 +438,14 @@ def keep_alive():
             bot.get_me()
             logger.info(f"✅ Пинг бота: {time.strftime('%Y-%m-%d %H:%M:%S')}")
             fail_count = 0
-        except Exception as e:
+        except:
             fail_count += 1
-            logger.error(f"❌ Ошибка пинга ({fail_count}): {e}")
+            logger.error(f"❌ Ошибка пинга ({fail_count}): {traceback.format_exc()}")
             if fail_count > 3:
                 logger.warning("⚠️ Много ошибок пинга, но main цикл всё исправит")
                 fail_count = 0
 
+# Запуск
 if __name__ == '__main__':
     print("=" * 60)
     print("🤖 ЗАПУСК БОТА НА RENDER")
@@ -448,12 +457,9 @@ if __name__ == '__main__':
         print(f"   {i}. ID: {admin_id}")
     print(f"🔄 Режим: поллинг (без вебхука)")
     print("=" * 60)
-    
     check_admins()
-    
-    # Запуск поддержки активности
+    # Поддержка активности
     alive_thread = threading.Thread(target=keep_alive, daemon=True)
     alive_thread.start()
-    
-    # Запуск бота с автоматическим перезапуском при ошибках
+    # Запуск бота с автоматическим перезапуском при сбое
     start_bot()
