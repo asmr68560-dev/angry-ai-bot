@@ -332,16 +332,6 @@ def admin_reject(call):
     except Exception as e:
         logger.error(f"❌ Ошибка отправки пользователю {user_id_str}: {e}")
     bot.answer_callback_query(call.id, "❌ Заявка отклонена")
-    try:
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=call.message.text + "\n\n❌ <b>ОТКЛОНЕНО</b> ❌",
-            parse_mode='HTML',
-            reply_markup=None
-        )
-    except:
-        pass
 
 # Обработчик "📦 Моды"
 @bot.message_handler(func=lambda m: m.text == "📦 Моды")
