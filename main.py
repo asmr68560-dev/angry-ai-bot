@@ -1,7 +1,6 @@
 import telebot
 from telebot import types
 import os
-import signal
 import sys
 import time
 import threading
@@ -91,15 +90,6 @@ def run_flask():
 flask_thread = threading.Thread(target=run_flask, daemon=True)
 flask_thread.start()
 print(f"✅ Веб-сервер запущен на порту {os.getenv('PORT', 10000)}")
-
-# Обработка сигнала
-def signal_handler(signum, frame):
-    global running
-    logger.info("🛑 Получен сигнал остановки, завершаем работу...")
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
 
 # Проверка доступности админов
 def check_admins():
