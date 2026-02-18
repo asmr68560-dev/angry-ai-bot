@@ -337,7 +337,7 @@ def get_nickname(message):
     
     # Сообщаем пользователю
     if sent_count > 0:
-    bot.send_message(
+        bot.send_message(
             message.chat.id,
             "✅ <b>Заявка отправлена!</b>\n\n"
             "Администратор проверит оплату и выдаст доступ.\n"
