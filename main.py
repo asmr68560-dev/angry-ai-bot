@@ -62,6 +62,9 @@ ADMIN_IDS = [
 # Инициализация бота
 bot = telebot.TeleBot(TOKEN)
 
+# Флаг для управления потоками
+bot_thread_running = True
+
 # Конфигурации
 PAYMENT_NUMBERS = [
     ["🎮 Проходка на один сезон - 25 руб", "+7 (932) 304-54-76"],
@@ -94,11 +97,6 @@ def run_flask():
     port = int(os.getenv('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
 
-# Запуск веб-сервера
-flask_thread = threading.Thread(target=run_flask, daemon=True)
-flask_thread.start()
-print(f"✅ Веб-сервер запущен на порту {os.getenv('PORT', 10000)}")
-
 # Проверка доступности админов
 def check_admins():
     for admin_id in ADMIN_IDS:
@@ -108,17 +106,10 @@ def check_admins():
         except:
             logger.warning(f"⚠️ Админ {admin_id} НЕДОСТУПЕН (нужно написать /start)")
 
-# Основной цикл бота с автоматическим перезапуском
-def start_bot():
-    while True:
-        try:
-            bot.infinity_polling()
-        except Exception as e:
-            logger.critical(f"Критическая ошибка в основном цикле: {e}")
-            traceback.print_exc()
-            time.sleep(5)
+# ============================================
+# ОСНОВНЫЕ ОБРАБОТЧИКИ КОМАНД (ваши, без изменений)
+# ============================================
 
-# Обработчики команд и сообщений (ваш код)
 @bot.message_handler(commands=['start', 'restart'])
 def start(message):
     user_id = str(message.from_user.id)
@@ -144,7 +135,7 @@ def bot_status(message):
         status += f"🆔 ID: <code>{me.id}</code>\n"
         status += f"👥 Админов: {len(ADMIN_IDS)}\n"
         status += f"👤 Пользователей в памяти: {len(users)}\n"
-        status += f"🔄 Режим: поллинг"
+        status+= f"🔄 Режим: поллинг"
     except Exception as e:
         status = f"❌ <b>Бот НЕ отвечает!</b>\n\nОшибка: {e}"
     bot.send_message(message.chat.id, status, parse_mode='HTML')
@@ -429,23 +420,97 @@ def other(message):
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
+# ============================================
+# НОВЫЕ ФУНКЦИИ ДЛЯ СТАБИЛЬНОЙ РАБОТЫ
+# ============================================
+
+def run_polling():
+    """Функция, которая будет работать в отдельном потоке и запускать polling"""
+    global bot, bot_thread_running
+    
+    logger.info("🔄 Поток polling запущен")
+    
+    while bot_thread_running:
+        try:
+            logger.info("🚀 Запуск bot.polling()...")
+            bot.polling(none_stop=True, interval=0, timeout=20)
+            
+        except Exception as e:
+            logger.error(f"💥 Polling упал: {e}")
+            traceback.print_exc()
+            
+            logger.info("⏳ Ожидание 5 секунд перед перезапуском polling...")
+            time.sleep(5)
+            
+            try:
+                logger.info("🔄 Пересоздание экземпляра бота...")
+                bot = telebot.TeleBot(TOKEN)
+                logger.info("✅ Бот пересоздан")
+            except Exception as create_error:
+                logger.error(f"❌ Не удалось пересоздать бота: {create_error}")
+    
+    logger.warning("⚠️ Поток polling завершен")
+
 def keep_alive():
-    """Функция для поддержания активности"""
-    fail_count = 0
+    """Просто пингует бота и логирует время"""
     while True:
-        time.sleep(240)
+        time.sleep(240)  # 4 минуты
         try:
             bot.get_me()
-            logger.info(f"✅ Пинг бота: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-            fail_count = 0
-        except:
-            fail_count += 1
-            logger.error(f"❌ Ошибка пинга ({fail_count}): {traceback.format_exc()}")
-            if fail_count > 3:
-                logger.warning("⚠️ Много ошибок пинга, но main цикл всё исправит")
-                fail_count = 0
+            logger.info(f"💓 Пинг: бот жив [{time.strftime('%H:%M:%S')}]")
+        except Exception as e:
+            logger.error(f"💓 Пинг не удался: {e}")
 
-# Запуск
+def watchdog():
+    """Наблюдает за ботом и перезапускает при зависании"""
+    global bot, bot_thread_running
+    
+    logger.info("🐶 Watchdog запущен и следит за ботом")
+    
+    fail_count = 0
+    last_success_time = time.time()
+    
+    while True:
+        time.sleep(30)  # Проверяем каждые 30 секунд
+        
+        try:
+            me = bot.get_me()
+            logger.debug(f"🐶 Watchdog: бот @{me.username} жив")
+            fail_count = 0
+            last_success_time = time.time()
+            
+        except Exception as e:
+            fail_count += 1
+            time_since_success = time.time() - last_success_time
+            
+            logger.warning(f"🐶 Watchdog: Бот не отвечает! (попытка {fail_count}, прошло {time_since_success:.0f}с)")
+            logger.warning(f"🐶 Ошибка: {e}")
+            
+            if fail_count >= 2 or time_since_success > 120:
+                logger.critical("🐶 Watchdog: Бот УМЕР! Запускаю процедуру спасения...")
+                
+                try:
+                    logger.info("🐶 Останавливаем старый polling...")
+                    bot.stop_polling()
+                except:
+                    pass
+                
+                try:
+                    logger.info("🐶 Создаем нового бота...")
+                    new_bot = telebot.TeleBot(TOKEN)
+                    bot = new_bot
+                    logger.info("🐶 Новый бот создан!")
+                    
+                except Exception as create_error:
+                    logger.error(f"🐶 КРИТИЧЕСКАЯ ОШИБКА: {create_error}")
+                
+                fail_count = 0
+                last_success_time = time.time()
+
+# ============================================
+# ЗАПУСК ВСЕХ СИСТЕМ
+# ============================================
+
 if __name__ == '__main__':
     print("=" * 60)
     print("🤖 ЗАПУСК БОТА НА RENDER")
@@ -457,9 +522,64 @@ if __name__ == '__main__':
         print(f"   {i}. ID: {admin_id}")
     print(f"🔄 Режим: поллинг (без вебхука)")
     print("=" * 60)
+    
+    # Проверяем доступность админов
     check_admins()
-    # Поддержка активности
+    
+    # ========== ЗАПУСК ПОТОКА FLASK ==========
+    print("🌐 Запуск Flask веб-сервера...")
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    print(f"✅ Flask на порту {os.getenv('PORT', 10000)}")
+    
+    # ========== ЗАПУСК ПОТОКА ПИНГЕРА ==========
+    print("💓 Запуск пингера...")
     alive_thread = threading.Thread(target=keep_alive, daemon=True)
     alive_thread.start()
-    # Запуск бота с автоматическим перезапуском
-    start_bot()
+    print("✅ Пингер запущен")
+    
+    # ========== ЗАПУСК ПОТОКА WATCHDOG ==========
+    print("🐶 Запуск Watchdog...")
+    watchdog_thread = threading.Thread(target=watchdog, daemon=True)
+    watchdog_thread.start()
+    print("✅ Watchdog следит за ботом")
+    
+    # ========== ЗАПУСК ОСНОВНОГО ПОТОКА БОТА ==========
+    print("🤖 Запуск основного потока бота (polling)...")
+    polling_thread = threading.Thread(target=run_polling, daemon=False)
+    polling_thread.start()
+    print("✅ Polling запущен в отдельном потоке")
+    
+    print("=" * 60)
+    print("✅ ВСЕ СИСТЕМЫ ЗАПУЩЕНЫ!")
+    print("=" * 60)
+    
+    # ========== ГЛАВНЫЙ ПОТОК (наблюдает за всеми) ==========
+    try:
+        while True:
+            time.sleep(10)
+            
+            # Проверяем, жив ли основной поток бота
+            if not polling_thread.is_alive():
+                logger.critical("⚠️ ПОТОК POLLING УМЕР! Перезапускаем...")
+                polling_thread = threading.Thread(target=run_polling, daemon=False)
+                polling_thread.start()
+                logger.info("✅ Новый поток polling запущен")
+            
+            # Проверяем другие потоки
+            if not alive_thread.is_alive():
+                logger.error("⚠️ Пингер умер, перезапуск...")
+                alive_thread = threading.Thread(target=keep_alive, daemon=True)
+                alive_thread.start()
+            
+            if not watchdog_thread.is_alive():
+                logger.error("⚠️ Watchdog умер, перезапуск...")
+                watchdog_thread = threading.Thread(target=watchdog, daemon=True)
+                watchdog_thread.start()
+                
+    except KeyboardInterrupt:
+        print("\n👋 Получен сигнал остановки")
+        bot_thread_running = False
+        bot.stop_polling()
+        print("👋 Бот остановлен")
+        sys.exit(0)
