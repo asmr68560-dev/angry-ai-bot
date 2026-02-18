@@ -3,10 +3,9 @@ from telebot import types
 import os
 import sys
 import time
-import threading
 import requests
 import logging
-from flask import Flask
+from flask import Flask, request, abort
 import traceback
 
 # Глобальный перехват необработанных исключений
@@ -18,25 +17,6 @@ def handle_exception(exc_type, exc_value, exc_traceback):
     traceback.print_exception(exc_type, exc_value, exc_traceback)
 
 sys.excepthook = handle_exception
-
-# Жесткий сброс ВСЕХ подключений перед стартом
-def hard_reset_bot():
-    """Принудительный сброс всех подключений бота"""
-    token = '8247657980:AAE7hrsVNlxoRpWRfrvvutUJNAbRpiUa_p8'
-    if not token:
-        return
-    print("🔄 ЖЕСТКИЙ СБРОС ПОДКЛЮЧЕНИЙ...")
-    try:
-        requests.post(f"https://api.telegram.org/bot{token}/close")
-        time.sleep(1)
-        requests.post(f"https://api.telegram.org/bot{token}/deleteWebhook", json={"drop_pending_updates": True})
-        time.sleep(1)
-        print("✅ Сброс завершен!")
-    except Exception as e:
-        print(f"❌ Ошибка при сбросе: {e}")
-
-# Выполняем сброс перед запуском
-hard_reset_bot()
 
 # Логирование
 logging.basicConfig(
@@ -62,9 +42,6 @@ ADMIN_IDS = [
 # Инициализация бота
 bot = telebot.TeleBot(TOKEN)
 
-# Флаг для управления потоками
-bot_thread_running = True
-
 # Конфигурации
 PAYMENT_NUMBERS = [
     ["🎮 Проходка на один сезон - 25 руб", "+7 (932) 304-54-76"],
@@ -84,7 +61,10 @@ SERVER_VERSION = "1.21.11 Fabric"
 users = {}
 app = Flask(__name__)
 
-# Веб-сервер
+# ============================================
+# ВЕБ-СЕРВЕР (ДЛЯ WEBHOOK И HEALTH CHECKS)
+# ============================================
+
 @app.route('/')
 def home():
     return "✅ Бот работает!", 200
@@ -93,21 +73,19 @@ def home():
 def health():
     return "OK", 200
 
-def run_flask():
-    port = int(os.getenv('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
-
-# Проверка доступности админов
-def check_admins():
-    for admin_id in ADMIN_IDS:
-        try:
-            bot.send_chat_action(admin_id, 'typing')
-            logger.info(f"✅ Админ {admin_id} доступен")
-        except:
-            logger.warning(f"⚠️ Админ {admin_id} НЕДОСТУПЕН (нужно написать /start)")
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Принимает обновления от Telegram"""
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        abort(403)
 
 # ============================================
-# ОСНОВНЫЕ ОБРАБОТЧИКИ КОМАНД (ваши, без изменений)
+# ВСЕ ОБРАБОТЧИКИ КОМАНД (ваши, без изменений)
 # ============================================
 
 @bot.message_handler(commands=['start', 'restart'])
@@ -131,11 +109,13 @@ def bot_status(message):
         return
     try:
         me = bot.get_me()
+        webhook_info = bot.get_webhook_info()
         status = f"✅ <b>Бот @{me.username} работает</b>\n\n"
         status += f"🆔 ID: <code>{me.id}</code>\n"
         status += f"👥 Админов: {len(ADMIN_IDS)}\n"
         status += f"👤 Пользователей в памяти: {len(users)}\n"
-        status+= f"🔄 Режим: поллинг"
+        status += f"🔗 Webhook: {webhook_info.url}\n"
+        status += f"⏳ Ожидает обновлений: {webhook_info.pending_update_count}"
     except Exception as e:
         status = f"❌ <b>Бот НЕ отвечает!</b>\n\nОшибка: {e}"
     bot.send_message(message.chat.id, status, parse_mode='HTML')
@@ -376,7 +356,7 @@ def test_bot(message):
         f"✅ <b>Бот работает исправно!</b>\n\n"
         f"👑 Админов в списке: {len(ADMIN_IDS)}\n"
         f"👤 Пользователей в памяти: {len(users)}\n"
-        f"🔄 Режим: поллинг",
+        f"🔗 Режим: webhook",
         parse_mode='HTML'
     )
 
@@ -420,166 +400,76 @@ def other(message):
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
-# ============================================
-# НОВЫЕ ФУНКЦИИ ДЛЯ СТАБИЛЬНОЙ РАБОТЫ
-# ============================================
-
-def run_polling():
-    """Функция, которая будет работать в отдельном потоке и запускать polling"""
-    global bot, bot_thread_running
-    
-    logger.info("🔄 Поток polling запущен")
-    
-    while bot_thread_running:
+def check_admins():
+    """Проверка доступности админов"""
+    for admin_id in ADMIN_IDS:
         try:
-            logger.info("🚀 Запуск bot.polling()...")
-            bot.polling(none_stop=True, interval=0, timeout=20)
-            
-        except Exception as e:
-            logger.error(f"💥 Polling упал: {e}")
-            traceback.print_exc()
-            
-            logger.info("⏳ Ожидание 5 секунд перед перезапуском polling...")
-            time.sleep(5)
-            
-            try:
-                logger.info("🔄 Пересоздание экземпляра бота...")
-                bot = telebot.TeleBot(TOKEN)
-                logger.info("✅ Бот пересоздан")
-            except Exception as create_error:
-                logger.error(f"❌ Не удалось пересоздать бота: {create_error}")
-    
-    logger.warning("⚠️ Поток polling завершен")
-
-def keep_alive():
-    """Просто пингует бота и логирует время"""
-    while True:
-        time.sleep(240)  # 4 минуты
-        try:
-            bot.get_me()
-            logger.info(f"💓 Пинг: бот жив [{time.strftime('%H:%M:%S')}]")
-        except Exception as e:
-            logger.error(f"💓 Пинг не удался: {e}")
-
-def watchdog():
-    """Наблюдает за ботом и перезапускает при зависании"""
-    global bot, bot_thread_running
-    
-    logger.info("🐶 Watchdog запущен и следит за ботом")
-    
-    fail_count = 0
-    last_success_time = time.time()
-    
-    while True:
-        time.sleep(30)  # Проверяем каждые 30 секунд
-        
-        try:
-            me = bot.get_me()
-            logger.debug(f"🐶 Watchdog: бот @{me.username} жив")
-            fail_count = 0
-            last_success_time = time.time()
-            
-        except Exception as e:
-            fail_count += 1
-            time_since_success = time.time() - last_success_time
-            
-            logger.warning(f"🐶 Watchdog: Бот не отвечает! (попытка {fail_count}, прошло {time_since_success:.0f}с)")
-            logger.warning(f"🐶 Ошибка: {e}")
-            
-            if fail_count >= 2 or time_since_success > 120:
-                logger.critical("🐶 Watchdog: Бот УМЕР! Запускаю процедуру спасения...")
-                
-                try:
-                    logger.info("🐶 Останавливаем старый polling...")
-                    bot.stop_polling()
-                except:
-                    pass
-                
-                try:
-                    logger.info("🐶 Создаем нового бота...")
-                    new_bot = telebot.TeleBot(TOKEN)
-                    bot = new_bot
-                    logger.info("🐶 Новый бот создан!")
-                    
-                except Exception as create_error:
-                    logger.error(f"🐶 КРИТИЧЕСКАЯ ОШИБКА: {create_error}")
-                
-                fail_count = 0
-                last_success_time = time.time()
+            bot.send_chat_action(admin_id, 'typing')
+            logger.info(f"✅ Админ {admin_id} доступен")
+        except:
+            logger.warning(f"⚠️ Админ {admin_id} НЕДОСТУПЕН (нужно написать /start)")
 
 # ============================================
-# ЗАПУСК ВСЕХ СИСТЕМ
+# ЗАПУСК
 # ============================================
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("🤖 ЗАПУСК БОТА НА RENDER")
+    print("🤖 ЗАПУСК БОТА НА RENDER (WEBHOOK)")
     print("=" * 60)
-    print(f"💰 Режим: оплата переводом по номеру телефона")
-    print(f"📦 Моды: Simple Voice, Voice Messages, Emotecraft")
+    print(f"💰 Тарифов: {len(PAYMENT_NUMBERS)}")
+    print(f"📦 Модов: {len(MOD_LINKS)}")
     print(f"👑 Админы ({len(ADMIN_IDS)} человек):")
     for i, admin_id in enumerate(ADMIN_IDS, 1):
         print(f"   {i}. ID: {admin_id}")
-    print(f"🔄 Режим: поллинг (без вебхука)")
     print("=" * 60)
     
-    # Проверяем доступность админов
+    # Получаем URL Render
+    render_url = os.environ.get('RENDER_EXTERNAL_URL')
+    if not render_url:
+        print("⚠️ ВНИМАНИЕ: RENDER_EXTERNAL_URL не найден!")
+        print("📌 Если вы тестируете локально, используйте ngrok")
+        print("📌 На Render этот URL создается автоматически")
+        render_url = "https://ваш-сервер.render.com"  # Заглушка
+    
+    webhook_url = f"{render_url}/webhook"
+    print(f"🔗 Webhook URL: {webhook_url}")
+    
+    # Устанавливаем webhook
+    print("\n🔄 Удаляем старый webhook...")
+    bot.remove_webhook()
+    time.sleep(1)
+    
+    print("🔄 Устанавливаем новый webhook...")
+    try:
+        bot.set_webhook(url=webhook_url)
+        print("✅ Webhook успешно установлен!")
+        
+        # Проверяем webhook
+        webhook_info = bot.get_webhook_info()
+        print(f"📊 Информация о webhook:")
+        print(f"   • URL: {webhook_info.url}")
+        print(f"   • Ожидает обновлений: {webhook_info.pending_update_count}")
+        print(f"   • Ошибок: {webhook_info.last_error_message or 'нет'}")
+        
+    except Exception as e:
+        print(f"❌ Ошибка установки webhook: {e}")
+        print("🔄 Пробуем альтернативный метод...")
+        try:
+            requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook")
+            time.sleep(1)
+            requests.post(f"https://api.telegram.org/bot{TOKEN}/setWebhook", 
+                         json={"url": webhook_url})
+            print("✅ Webhook установлен через requests")
+        except Exception as e2:
+            print(f"❌ И этот метод не сработал: {e2}")
+    
+    print("\n🚀 Запуск Flask сервера...")
+    print("=" * 60)
+    
+    # Проверяем админов
     check_admins()
     
-    # ========== ЗАПУСК ПОТОКА FLASK ==========
-    print("🌐 Запуск Flask веб-сервера...")
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    print(f"✅ Flask на порту {os.getenv('PORT', 10000)}")
-    
-    # ========== ЗАПУСК ПОТОКА ПИНГЕРА ==========
-    print("💓 Запуск пингера...")
-    alive_thread = threading.Thread(target=keep_alive, daemon=True)
-    alive_thread.start()
-    print("✅ Пингер запущен")
-    
-    # ========== ЗАПУСК ПОТОКА WATCHDOG ==========
-    print("🐶 Запуск Watchdog...")
-    watchdog_thread = threading.Thread(target=watchdog, daemon=True)
-    watchdog_thread.start()
-    print("✅ Watchdog следит за ботом")
-    
-    # ========== ЗАПУСК ОСНОВНОГО ПОТОКА БОТА ==========
-    print("🤖 Запуск основного потока бота (polling)...")
-    polling_thread = threading.Thread(target=run_polling, daemon=False)
-    polling_thread.start()
-    print("✅ Polling запущен в отдельном потоке")
-    
-    print("=" * 60)
-    print("✅ ВСЕ СИСТЕМЫ ЗАПУЩЕНЫ!")
-    print("=" * 60)
-    
-    # ========== ГЛАВНЫЙ ПОТОК (наблюдает за всеми) ==========
-    try:
-        while True:
-            time.sleep(10)
-            
-            # Проверяем, жив ли основной поток бота
-            if not polling_thread.is_alive():
-                logger.critical("⚠️ ПОТОК POLLING УМЕР! Перезапускаем...")
-                polling_thread = threading.Thread(target=run_polling, daemon=False)
-                polling_thread.start()
-                logger.info("✅ Новый поток polling запущен")
-            
-            # Проверяем другие потоки
-            if not alive_thread.is_alive():
-                logger.error("⚠️ Пингер умер, перезапуск...")
-                alive_thread = threading.Thread(target=keep_alive, daemon=True)
-                alive_thread.start()
-            
-            if not watchdog_thread.is_alive():
-                logger.error("⚠️ Watchdog умер, перезапуск...")
-                watchdog_thread = threading.Thread(target=watchdog, daemon=True)
-                watchdog_thread.start()
-                
-    except KeyboardInterrupt:
-        print("\n👋 Получен сигнал остановки")
-        bot_thread_running = False
-        bot.stop_polling()
-        print("👋 Бот остановлен")
-        sys.exit(0)
+    # Запускаем Flask
+    port = int(os.getenv('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
