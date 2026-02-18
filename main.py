@@ -13,7 +13,7 @@ from flask import Flask
 # Жесткий сброс ВСЕХ подключений перед стартом
 def hard_reset_bot():
     """Принудительный сброс всех подключений бота"""
-    token = os.getenv('BOT_TOKEN')
+    token = os.getenv('8247657980:AAE7hrsVNlxoRpWRfrvvutUJNAbRpiUa_p8')
     if not token:
         return
     
@@ -101,10 +101,6 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-def is_admin(user_id):
-    """Проверяет, является ли пользователь админом"""
-    return user_id in ADMIN_IDS
-
 # ========== ВЕБ-СЕРВЕР В ОТДЕЛЬНОМ ПОТОКЕ ==========
 app = Flask(__name__)
 
@@ -119,7 +115,6 @@ def health():
 def run_flask():
     """Запускаем Flask в отдельном потоке"""
     port = int(os.getenv('PORT', 10000))
-    # Важно: use_reloader=False, debug=False, threaded=True
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
 
 # Запускаем Flask в отдельном потоке
@@ -128,6 +123,7 @@ flask_thread.start()
 print(f"✅ Веб-сервер запущен на порту {os.getenv('PORT', 10000)}")
 # ===================================================
 
+# Обработчик команды /start
 @bot.message_handler(commands=['start', 'restart'])
 def start(message):
     user_id = str(message.from_user.id)
@@ -147,12 +143,11 @@ def start(message):
         reply_markup=markup
     )
 
+# Обработчик команды /status
 @bot.message_handler(commands=['status'])
 def bot_status(message):
-    """Проверка статуса бота"""
     if not is_admin(message.from_user.id):
         return
-    
     try:
         me = bot.get_me()
         status = f"✅ <b>Бот @{me.username} работает</b>\n\n"
@@ -162,23 +157,20 @@ def bot_status(message):
         status += f"🔄 Режим: поллинг"
     except Exception as e:
         status = f"❌ <b>Бот НЕ отвечает!</b>\n\nОшибка: {e}"
-    
     bot.send_message(message.chat.id, status, parse_mode='HTML')
 
+# Обработчик "💰 Тарифы"
 @bot.message_handler(func=lambda m: m.text == "💰 Тарифы")
 def show_tariffs(message):
     tariffs_text = "💳 <b>Номера для перевода:</b>\n\n"
-    
     for i, (name, number) in enumerate(PAYMENT_NUMBERS, 1):
         tariffs_text += f"{i}. {name}\n📱 Номер: <code>{number}</code>\n\n"
-    
     markup = types.InlineKeyboardMarkup(row_width=1)
     for i, (name, _) in enumerate(PAYMENT_NUMBERS):
         markup.add(types.InlineKeyboardButton(
             name,
             callback_data=f"tariff_{i}"
         ))
-    
     bot.send_message(
         message.chat.id,
         tariffs_text,
@@ -186,18 +178,16 @@ def show_tariffs(message):
         reply_markup=markup
     )
 
+# Обработчик callback для выбора тарифа
 @bot.callback_query_handler(func=lambda call: call.data.startswith('tariff_'))
 def process_tariff(call):
     tariff_index = int(call.data.split('_')[1])
     tariff_name, tariff_number = PAYMENT_NUMBERS[tariff_index]
-    
     user_id = str(call.from_user.id)
     if user_id not in users:
         users[user_id] = {}
-    
     users[user_id]['tariff'] = tariff_name
     users[user_id]['number'] = tariff_number
-    
     instruction = (
         f"✅ Вы выбрали: {tariff_name}\n\n"
         f"📱 <b>Номер для перевода:</b>\n<code>{tariff_number}</code>\n\n"
@@ -206,17 +196,9 @@ def process_tariff(call):
         f"2. Нажмите кнопку 'Я перевел деньги'\n"
         f"3. Напишите свой ник в Minecraft"
     )
-    
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(
-        "✅ Я перевел деньги",
-        callback_data="paid"
-    ))
-    markup.add(types.InlineKeyboardButton(
-        "◀️ Назад к тарифам",
-        callback_data="back_to_tariffs"
-    ))
-    
+    markup.add(types.InlineKeyboardButton("✅ Я перевел деньги", callback_data="paid"))
+    markup.add(types.InlineKeyboardButton("◀️ Назад к тарифам", callback_data="back_to_tariffs"))
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
@@ -224,33 +206,14 @@ def process_tariff(call):
         parse_mode='HTML',
         reply_markup=markup
     )
-    
     bot.answer_callback_query(call.id)
 
+# Обработчик "Назад к тарифам"
 @bot.callback_query_handler(func=lambda call: call.data == "back_to_tariffs")
 def back_to_tariffs(call):
-    tariffs_text = "💳 <b>Номера для перевода:</b>\n\n"
-    
-    for i, (name, number) in enumerate(PAYMENT_NUMBERS, 1):
-        tariffs_text += f"{i}. {name}\n📱 Номер: <code>{number}</code>\n\n"
-    
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    for i, (name, _) in enumerate(PAYMENT_NUMBERS):
-        markup.add(types.InlineKeyboardButton(
-            name,
-            callback_data=f"tariff_{i}"
-        ))
-    
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=tariffs_text,
-        parse_mode='HTML',
-        reply_markup=markup
-    )
-    
-    bot.answer_callback_query(call.id)
+    show_tariffs(call.message)
 
+# Обработчик "Я перевел деньги"
 @bot.callback_query_handler(func=lambda call: call.data == "paid")
 def paid(call):
     bot.edit_message_text(
@@ -258,23 +221,17 @@ def paid(call):
         call.message.chat.id,
         call.message.message_id
     )
-    
     bot.register_next_step_handler(call.message, get_nickname)
 
 def get_nickname(message):
     user_id = str(message.from_user.id)
     username = message.from_user.username or "без username"
-    
     user_nick = message.text
-    
     if user_id not in users:
         users[user_id] = {}
-    
     users[user_id]['nick'] = user_nick
-    
     tariff_info = users[user_id].get('tariff', 'Не выбран')
     number_info = users[user_id].get('number', 'Не указан')
-    
     admin_msg = (
         f"🆕 <b>НОВАЯ ЗАЯВКА НА ОПЛАТУ!</b>\n\n"
         f"👤 <b>Пользователь:</b> @{username}\n"
@@ -283,32 +240,18 @@ def get_nickname(message):
         f"💰 <b>Тариф:</b> {tariff_info}\n"
         f"📱 <b>Номер:</b> {number_info}\n"
     )
-    
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        types.InlineKeyboardButton(
-            "✅ Подтвердить оплату",
-            callback_data=f"confirm_{user_id}"
-        ),
-        types.InlineKeyboardButton(
-            "❌ Отклонить",
-            callback_data=f"reject_{user_id}"
-        )
+        types.InlineKeyboardButton("✅ Подтвердить оплату", callback_data=f"confirm_{user_id}"),
+        types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{user_id}")
     )
-    markup.add(types.InlineKeyboardButton(
-        "💬 Написать пользователю",
-        url=f"tg://user?id={user_id}"
-    ))
-    
-    sent_count = 0
+    markup.add(types.InlineKeyboardButton("💬 Написать пользователю", url=f"tg://user?id={user_id}"))
     for admin_id in ADMIN_IDS:
         try:
             bot.send_message(admin_id, admin_msg, parse_mode='HTML', reply_markup=markup)
             logger.info(f"✅ Заявка отправлена админу {admin_id}")
-            sent_count += 1
         except Exception as e:
             logger.error(f"❌ Ошибка отправки админу {admin_id}: {e}")
-    
     bot.send_message(
         message.chat.id,
         "✅ <b>Заявка отправлена!</b>\n\n"
@@ -316,26 +259,21 @@ def get_nickname(message):
         "⏳ Обычное время ожидания: от 5 минут до 24 часов.",
         parse_mode='HTML'
     )
-    
-    logger.info(f"📨 Заявка от пользователя {user_id} обработана")
 
+# Обработчик подтверждения от админа
 @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_'))
 def admin_confirm(call):
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ У вас нет прав администратора")
         return
-    
-    user_id = call.data.split('_')[1]
-    
+    user_id_str = call.data.split('_')[1]
     try:
-        user_id_int = int(user_id)
+        user_id_int = int(user_id_str)
     except:
         bot.answer_callback_query(call.id, "❌ Ошибка ID")
         return
-    
-    nickname = users.get(user_id, {}).get('nick', 'игрок')
-    tariff = users.get(user_id, {}).get('tariff', 'тариф')
-    
+    nickname = users.get(user_id_str, {}).get('nick', 'игрок')
+    tariff = users.get(user_id_str, {}).get('tariff', 'тариф')
     try:
         bot.send_message(
             user_id_int,
@@ -347,47 +285,21 @@ def admin_confirm(call):
             f"👇 <b>Для комфортной игры на нашем сервере рекомендуем скачать эти моды:</b>",
             parse_mode='HTML'
         )
-        
         mods_text = "\n\n".join(MOD_LINKS)
-        
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(
-            types.InlineKeyboardButton(
-                "📥 Simple Voice Chat",
-                url="https://modrinth.com/mod/simple-voice-chat"
-            ),
-            types.InlineKeyboardButton(
-                "📥 Voice Messages",
-                url="https://modrinth.com/mod/voice-messages"
-            ),
-            types.InlineKeyboardButton(
-                "📥 Emotecraft",
-                url="https://modrinth.com/mod/emotecraft"
-            )
+            types.InlineKeyboardButton("📥 Simple Voice Chat", url="https://modrinth.com/mod/simple-voice-chat"),
+            types.InlineKeyboardButton("📥 Voice Messages", url="https://modrinth.com/mod/voice-messages"),
+            types.InlineKeyboardButton("📥 Emotecraft", url="https://modrinth.com/mod/emotecraft")
         )
-        
-        bot.send_message(
-            user_id_int,
-            mods_text,
-            parse_mode='HTML',
-            reply_markup=markup
-        )
-        
-        bot.send_message(
-            user_id_int,
-            "🎮 <b>Удачной игры на сервере!</b>",
-            parse_mode='HTML'
-        )
-        
-        logger.info(f"✅ Доступ выдан пользователю {user_id} админом {call.from_user.id}")
-        
+        bot.send_message(user_id_int, mods_text, parse_mode='HTML', reply_markup=markup)
+        bot.send_message(user_id_int, "🎮 <b>Удачной игры на сервере!</b>", parse_mode='HTML')
+        logger.info(f"✅ Доступ выдан пользователю {user_id_str} админом {call.from_user.id}")
     except Exception as e:
-        logger.error(f"❌ Ошибка отправки пользователю {user_id}: {e}")
+        logger.error(f"❌ Ошибка отправки пользователю {user_id_str}: {e}")
         bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)[:50]}")
         return
-    
     bot.answer_callback_query(call.id, "✅ Доступ выдан")
-    
     try:
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -399,17 +311,16 @@ def admin_confirm(call):
     except:
         pass
 
+# Обработчик отклонения заявки
 @bot.callback_query_handler(func=lambda call: call.data.startswith('reject_'))
 def admin_reject(call):
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ У вас нет прав администратора")
         return
-    
-    user_id = call.data.split('_')[1]
-    
+    user_id_str = call.data.split('_')[1]
     try:
         bot.send_message(
-            int(user_id),
+            int(user_id_str),
             "❌ <b>Ваша заявка отклонена</b>\n\n"
             "Возможные причины:\n"
             "• Не подтверждена оплата\n"
@@ -417,12 +328,10 @@ def admin_reject(call):
             "• Некорректные данные\n\n"
             "📞 Для уточнения свяжитесь с поддержкой"
         )
-        logger.info(f"❌ Заявка отклонена для пользователя {user_id} админом {call.from_user.id}")
+        logger.info(f"❌ Заявка отклонена для пользователя {user_id_str} админом {call.from_user.id}")
     except Exception as e:
-        logger.error(f"❌ Ошибка отправки пользователю {user_id}: {e}")
-    
+        logger.error(f"❌ Ошибка отправки пользователю {user_id_str}: {e}")
     bot.answer_callback_query(call.id, "❌ Заявка отклонена")
-    
     try:
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -434,6 +343,7 @@ def admin_reject(call):
     except:
         pass
 
+# Обработчик "📦 Моды"
 @bot.message_handler(func=lambda m: m.text == "📦 Моды")
 def show_mods(message):
     mods_text = (
@@ -446,23 +356,12 @@ def show_mods(message):
         "2. Помести моды в папку .minecraft/mods\n"
         "3. Запусти игру через Fabric"
     )
-    
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(
-        types.InlineKeyboardButton(
-            "📥 Simple Voice Chat",
-            url="https://modrinth.com/mod/simple-voice-chat"
-        ),
-        types.InlineKeyboardButton(
-            "📥 Voice Messages",
-            url="https://modrinth.com/mod/voice-messages"
-        ),
-        types.InlineKeyboardButton(
-            "📥 Emotecraft",
-            url="https://modrinth.com/mod/emotecraft"
-        )
+        types.InlineKeyboardButton("📥 Simple Voice Chat", url="https://modrinth.com/mod/simple-voice-chat"),
+        types.InlineKeyboardButton("📥 Voice Messages", url="https://modrinth.com/mod/voice-messages"),
+        types.InlineKeyboardButton("📥 Emotecraft", url="https://modrinth.com/mod/emotecraft")
     )
-    
     bot.send_message(
         message.chat.id,
         mods_text,
@@ -470,6 +369,7 @@ def show_mods(message):
         reply_markup=markup
     )
 
+# Обработчик "❓ Помощь"
 @bot.message_handler(func=lambda m: m.text == "❓ Помощь")
 def help_msg(message):
     help_text = (
@@ -485,13 +385,8 @@ def help_msg(message):
         "❓ <b>Проблемы:</b>\n"
         "Если заявка не отправляется - напиши сюда и мы поможем!"
     )
-    
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(
-        "📞 Связаться с поддержкой",
-        url=f"tg://user?id={ADMIN_IDS[0]}"
-    ))
-    
+    markup.add(types.InlineKeyboardButton("📞 Связаться с поддержкой", url=f"tg://user?id={ADMIN_IDS[0]}"))
     bot.send_message(
         message.chat.id,
         help_text,
@@ -499,27 +394,25 @@ def help_msg(message):
         reply_markup=markup
     )
 
+# Обработчик команды /numbers
 @bot.message_handler(commands=['numbers'])
 def show_all_numbers(message):
     if not is_admin(message.from_user.id):
         return
-    
     numbers_text = "📋 <b>Все номера для оплаты:</b>\n\n"
-    
     for name, number in PAYMENT_NUMBERS:
         numbers_text += f"{name}\n📱 <code>{number}</code>\n\n"
-    
     bot.send_message(
         message.chat.id,
         numbers_text,
         parse_mode='HTML'
     )
 
+# Обработчик команды /test
 @bot.message_handler(commands=['test'])
 def test_bot(message):
     if not is_admin(message.from_user.id):
         return
-    
     bot.send_message(
         message.chat.id,
         f"✅ <b>Бот работает исправно!</b>\n\n"
@@ -529,11 +422,11 @@ def test_bot(message):
         parse_mode='HTML'
     )
 
+# Обработчик рассылки
 @bot.message_handler(commands=['broadcast'])
 def broadcast(message):
     if not is_admin(message.from_user.id):
         return
-    
     msg = bot.send_message(
         message.chat.id,
         "📢 Введите сообщение для рассылки всем пользователям:"
@@ -543,19 +436,16 @@ def broadcast(message):
 def process_broadcast(message):
     if not is_admin(message.from_user.id):
         return
-    
     text = message.text
     sent = 0
     failed = 0
-    
-    for user_id in users.keys():
+    for user_id in list(users.keys()):
         try:
             bot.send_message(int(user_id), f"📢 <b>Рассылка:</b>\n\n{text}", parse_mode='HTML')
             sent += 1
             time.sleep(0.05)
         except:
             failed += 1
-    
     bot.send_message(
         message.chat.id,
         f"✅ Рассылка завершена!\n"
@@ -563,6 +453,7 @@ def process_broadcast(message):
         f"❌ Не доставлено: {failed}"
     )
 
+# Обработчик любых других сообщений
 @bot.message_handler(func=lambda m: True)
 def other(message):
     bot.send_message(
@@ -573,10 +464,13 @@ def other(message):
         "❓ Помощь - связь с поддержкой"
     )
 
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
+
 def keep_alive():
     """Функция для поддержания активности"""
     fail_count = 0
-    while running:
+    while True:
         time.sleep(240)
         try:
             bot.get_me()
@@ -610,34 +504,13 @@ if __name__ == '__main__':
         except:
             logger.warning(f"⚠️ Админ {admin_id} НЕДОСТУПЕН (нужно написать боту /start)")
     
-    # Запускаем поток для поддержания активности
+    # Запускаем поток для поддержки активности
     alive_thread = threading.Thread(target=keep_alive, daemon=True)
     alive_thread.start()
     
-    # Даем Flask время запуститься
-    time.sleep(2)
-    
-    # Запускаем бота
-    logger.info("✅ Бот запущен и ожидает сообщения...")
-    
-    crash_count = 0
-    while running:
-        try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
-        except requests.exceptions.ConnectionError as e:
-            crash_count += 1
-            logger.error(f"❌ Ошибка соединения ({crash_count}): {e}")
-            logger.info("🔄 Перезапуск через 5 секунд...")
-            time.sleep(5)
-            crash_count = 0
-        except Exception as e:
-            crash_count += 1
-            logger.error(f"❌ Неожиданная ошибка ({crash_count}): {e}")
-            
-            if crash_count > 5:
-                logger.critical("⚠️ Слишком много ошибок подряд. Ждем 60 секунд...")
-                time.sleep(60)
-                crash_count = 0
-            else:
-                logger.info(f"🔄 Перезапуск через 10 секунд...")
-                time.sleep(10)
+    # Запускаем бота только один раз
+    try:
+        bot.infinity_polling()
+    except Exception as e:
+        logger.critical(f"Критическая ошибка: {e}")
+        # Можно добавить автоматический перезапуск или выйти
