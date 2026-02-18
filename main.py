@@ -103,6 +103,34 @@ def start(message):
         reply_markup=markup
     )
 
+@bot.callback_query_handler(func=lambda call: call.data == "check_username")
+def check_username_callback(call):
+    """Проверяет, создал ли пользователь username"""
+    username = call.from_user.username
+    
+    if username:
+        # Если создал - показываем тарифы
+        bot.answer_callback_query(call.id, "✅ Username найден!")
+        
+        tariffs_text = "💳 <b>Номера для перевода:</b>\n\n"
+        for i, (name, number) in enumerate(PAYMENT_NUMBERS, 1):
+            tariffs_text += f"{i}. {name}\n📱 Номер: <code>{number}</code>\n\n"
+        
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for i, (name, _) in enumerate(PAYMENT_NUMBERS):
+            markup.add(types.InlineKeyboardButton(name, callback_data=f"tariff_{i}"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=tariffs_text,
+            parse_mode='HTML',
+            reply_markup=markup
+        )
+    else:
+        # Если всё ещё нет - показываем ошибку
+        bot.answer_callback_query(call.id, "❌ Всё ещё нет username!", show_alert=True)
+
 @bot.message_handler(commands=['status'])
 def bot_status(message):
     if not is_admin(message.from_user.id):
@@ -122,12 +150,40 @@ def bot_status(message):
 
 @bot.message_handler(func=lambda m: m.text == "💰 Тарифы")
 def show_tariffs(message):
+    user_id = message.from_user.id
+    username = message.from_user.username
+    
+    # Проверяем есть ли username
+    if not username:
+        # Если нет - просим создать
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("📝 Как создать username", url="https://telegram.org/faq#q-как-мне-найти-людей-по-и"))
+        markup.add(types.InlineKeyboardButton("🔄 Я создал, проверить", callback_data="check_username"))
+        
+        bot.send_message(
+            message.chat.id,
+            "❌ <b>У вас не установлен username!</b>\n\n"
+            "Для оплаты и получения доступа к серверу необходимо иметь username в Telegram.\n\n"
+            "📋 <b>Как создать:</b>\n"
+            "1. Откройте настройки Telegram\n"
+            "2. Нажмите на своё имя\n"
+            "3. В поле 'Имя пользователя' введите любой ник\n"
+            "4. Сохраните изменения\n\n"
+            "После создания нажмите кнопку 'Я создал, проверить'",
+            parse_mode='HTML',
+            reply_markup=markup
+        )
+        return
+    
+    # Если username есть - показываем тарифы
     tariffs_text = "💳 <b>Номера для перевода:</b>\n\n"
     for i, (name, number) in enumerate(PAYMENT_NUMBERS, 1):
         tariffs_text += f"{i}. {name}\n📱 Номер: <code>{number}</code>\n\n"
+    
     markup = types.InlineKeyboardMarkup(row_width=1)
     for i, (name, _) in enumerate(PAYMENT_NUMBERS):
         markup.add(types.InlineKeyboardButton(name, callback_data=f"tariff_{i}"))
+    
     bot.send_message(
         message.chat.id,
         tariffs_text,
@@ -178,14 +234,80 @@ def paid(call):
     bot.register_next_step_handler(call.message, get_nickname)
 
 def get_nickname(message):
+    """
+    Получает ник Minecraft от пользователя после оплаты
+    и отправляет заявку админам
+    """
     user_id = str(message.from_user.id)
-    username = message.from_user.username or "без username"
-    user_nick = message.text
+    username = message.from_user.username
+    user_nick = message.text.strip()  # Убираем лишние пробелы
+    
+    # ========== ПРОВЕРКА 1: Есть ли username? ==========
+    if not username:
+        # Если нет username - отправляем предупреждение
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("📝 Как создать username", 
+                                             url="https://telegram.org/faq#q-как-мне-найти-людей-по-и"))
+        markup.add(types.InlineKeyboardButton("🔄 Я создал, продолжить", 
+                                             callback_data=f"retry_nick_{user_id}"))
+        
+        bot.send_message(
+            message.chat.id,
+            "❌ <b>Ошибка: отсутствует username!</b>\n\n"
+            "Для отправки заявки необходимо иметь username в Telegram.\n"
+            "Это нужно чтобы администратор мог связаться с вами.\n\n"
+            "📋 <b>Как создать:</b>\n"
+            "1. Откройте настройки Telegram\n"
+            "2. Нажмите на своё имя\n"
+            "3. В поле 'Имя пользователя' введите любой ник\n"
+            "4. Сохраните изменения\n\n"
+            "После создания нажмите кнопку 'Я создал, продолжить'",
+            parse_mode='HTML',
+            reply_markup=markup
+        )
+        
+        # Сохраняем ник временно, чтобы не потерять
+        if user_id not in users:
+            users[user_id] = {}
+        users[user_id]['temp_nick'] = user_nick
+        return
+    
+    # ========== ПРОВЕРКА 2: Ник не пустой? ==========
+    if not user_nick:
+        bot.send_message(
+            message.chat.id,
+            "❌ <b>Ник не может быть пустым!</b>\n\n"
+            "Пожалуйста, напиши свой ник в Minecraft:",
+            parse_mode='HTML'
+        )
+        # Повторно запрашиваем ник
+        bot.register_next_step_handler(message, get_nickname)
+        return
+    
+    # ========== ПРОВЕРКА 3: Ник не слишком длинный? ==========
+    if len(user_nick) > 16:
+        bot.send_message(
+            message.chat.id,
+            "❌ <b>Слишком длинный ник!</b>\n\n"
+            "Ник в Minecraft не может быть длиннее 16 символов.\n"
+            "Пожалуйста, введи правильный ник:",
+            parse_mode='HTML'
+        )
+        bot.register_next_step_handler(message, get_nickname)
+        return
+    
+    # ========== ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ ==========
+    
+    # Сохраняем ник пользователя
     if user_id not in users:
         users[user_id] = {}
     users[user_id]['nick'] = user_nick
+    
+    # Получаем информацию о тарифе
     tariff_info = users[user_id].get('tariff', 'Не выбран')
     number_info = users[user_id].get('number', 'Не указан')
+    
+    # Формируем сообщение для админов
     admin_msg = (
         f"🆕 <b>НОВАЯ ЗАЯВКА НА ОПЛАТУ!</b>\n\n"
         f"👤 <b>Пользователь:</b> @{username}\n"
@@ -194,25 +316,43 @@ def get_nickname(message):
         f"💰 <b>Тариф:</b> {tariff_info}\n"
         f"📱 <b>Номер:</b> {number_info}\n"
     )
+    
+    # Кнопки для админов
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("✅ Подтвердить оплату", callback_data=f"confirm_{user_id}"),
         types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{user_id}")
     )
     markup.add(types.InlineKeyboardButton("💬 Написать пользователю", url=f"tg://user?id={user_id}"))
+    
+    # Отправляем всем админам
+    sent_count = 0
     for admin_id in ADMIN_IDS:
         try:
             bot.send_message(admin_id, admin_msg, parse_mode='HTML', reply_markup=markup)
             logger.info(f"✅ Заявка отправлена админу {admin_id}")
+            sent_count += 1
         except Exception as e:
             logger.error(f"❌ Ошибка отправки админу {admin_id}: {e}")
+    
+    # Сообщаем пользователю
+    if sent_count > 0:
     bot.send_message(
-        message.chat.id,
-        "✅ <b>Заявка отправлена!</b>\n\n"
-        "Администратор проверит оплату и выдаст доступ.\n"
-        "⏳ Обычное время ожидания: от 5 минут до 24 часов.",
-        parse_mode='HTML'
-    )
+            message.chat.id,
+            "✅ <b>Заявка отправлена!</b>\n\n"
+            "Администратор проверит оплату и выдаст доступ.\n"
+            "⏳ Обычное время ожидания: от 5 минут до 24 часов.\n\n"
+            f"📝 Ваш ник: <code>{user_nick}</code>\n"
+            f"👤 Ваш username: @{username}",
+            parse_mode='HTML'
+        )
+    else:
+        bot.send_message(
+            message.chat.id,
+            "⚠️ <b>Ошибка отправки заявки!</b>\n\n"
+            "Администраторы временно недоступны. Пожалуйста, попробуйте позже или свяжитесь с поддержкой.",
+            parse_mode='HTML'
+        )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_'))
 def admin_confirm(call):
