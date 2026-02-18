@@ -413,7 +413,7 @@ def admin_confirm(call):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=call.message.text + f"\n\n✅ ЗАЯВКА ОДОБРЕНА ✅}",
+            text=call.message.text + "\n\n✅ ЗАЯВКА ОДОБРЕНА ✅",
             parse_mode='HTML',
             reply_markup=None  # Убираем кнопки!
         )
