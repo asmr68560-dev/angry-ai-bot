@@ -51,7 +51,7 @@ ADMIN_IDS = [
     5330661807,
 ]
 
-# Инициализация
+# Инициализация бота
 bot = telebot.TeleBot(TOKEN)
 
 # Конфигурация
@@ -107,7 +107,7 @@ def start_bot():
             bot.infinity_polling()
         except Exception as e:
             logger.critical(f"Критическая ошибка: {e}")
-            time.sleep(5)  # подождать перед перезапуском
+            time.sleep(5)  # задержка перед повторным запуском
 
 # Обработчики команд и сообщений
 
