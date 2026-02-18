@@ -20,22 +20,15 @@ def hard_reset_bot():
     print("🔄 ЖЕСТКИЙ СБРОС ПОДКЛЮЧЕНИЙ...")
     
     try:
-        # 1. Закрываем все активные сессии
         close_url = f"https://api.telegram.org/bot{token}/close"
         close_response = requests.post(close_url)
         print(f"📡 Close session: {close_response.status_code}")
-        time.sleep(2)
+        time.sleep(1)
         
-        # 2. Удаляем вебхук
         webhook_url = f"https://api.telegram.org/bot{token}/deleteWebhook"
         webhook_response = requests.post(webhook_url, json={"drop_pending_updates": True})
         print(f"📡 Delete webhook: {webhook_response.status_code}")
-        time.sleep(2)
-        
-        # 3. Проверяем статус
-        info_url = f"https://api.telegram.org/bot{token}/getWebhookInfo"
-        info_response = requests.get(info_url)
-        print(f"📡 Webhook info: {info_response.json()}")
+        time.sleep(1)
         
         print("✅ Сброс завершен!")
     except Exception as e:
@@ -112,6 +105,29 @@ def is_admin(user_id):
     """Проверяет, является ли пользователь админом"""
     return user_id in ADMIN_IDS
 
+# ========== ВЕБ-СЕРВЕР В ОТДЕЛЬНОМ ПОТОКЕ ==========
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "✅ Бот работает!", 200
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+def run_flask():
+    """Запускаем Flask в отдельном потоке"""
+    port = int(os.getenv('PORT', 10000))
+    # Важно: use_reloader=False, debug=False, threaded=True
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
+
+# Запускаем Flask в отдельном потоке
+flask_thread = threading.Thread(target=run_flask, daemon=True)
+flask_thread.start()
+print(f"✅ Веб-сервер запущен на порту {os.getenv('PORT', 10000)}")
+# ===================================================
+
 @bot.message_handler(commands=['start', 'restart'])
 def start(message):
     user_id = str(message.from_user.id)
@@ -137,7 +153,6 @@ def bot_status(message):
     if not is_admin(message.from_user.id):
         return
     
-    # Проверяем подключение к Telegram
     try:
         me = bot.get_me()
         status = f"✅ <b>Бот @{me.username} работает</b>\n\n"
@@ -250,7 +265,6 @@ def get_nickname(message):
     user_id = str(message.from_user.id)
     username = message.from_user.username or "без username"
     
-    # Принимаем любой текст без проверок
     user_nick = message.text
     
     if user_id not in users:
@@ -261,7 +275,6 @@ def get_nickname(message):
     tariff_info = users[user_id].get('tariff', 'Не выбран')
     number_info = users[user_id].get('number', 'Не указан')
     
-    # Формируем сообщение для админов
     admin_msg = (
         f"🆕 <b>НОВАЯ ЗАЯВКА НА ОПЛАТУ!</b>\n\n"
         f"👤 <b>Пользователь:</b> @{username}\n"
@@ -287,7 +300,6 @@ def get_nickname(message):
         url=f"tg://user?id={user_id}"
     ))
     
-    # Отправляем каждому админу из списка
     sent_count = 0
     for admin_id in ADMIN_IDS:
         try:
@@ -296,13 +308,6 @@ def get_nickname(message):
             sent_count += 1
         except Exception as e:
             logger.error(f"❌ Ошибка отправки админу {admin_id}: {e}")
-    
-    if sent_count == 0:
-        logger.error("🚨 НИ ОДНОМУ АДМИНУ НЕ ОТПРАВЛЕНА ЗАЯВКА!")
-        try:
-            bot.send_message(ADMIN_IDS[0], f"⚠️ КРИТИЧЕСКАЯ ОШИБКА: Заявка от {user_id} не доставлена админам!\n\n{admin_msg}", parse_mode='HTML')
-        except:
-            pass
     
     bot.send_message(
         message.chat.id,
@@ -316,24 +321,22 @@ def get_nickname(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_'))
 def admin_confirm(call):
-    # Проверяем, что админ есть в списке
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ У вас нет прав администратора")
         return
     
     user_id = call.data.split('_')[1]
     
-    if user_id not in users:
-        bot.answer_callback_query(call.id, "❌ Пользователь не найден в базе")
+    try:
         user_id_int = int(user_id)
-    else:
-        user_id_int = int(user_id)
+    except:
+        bot.answer_callback_query(call.id, "❌ Ошибка ID")
+        return
     
     nickname = users.get(user_id, {}).get('nick', 'игрок')
     tariff = users.get(user_id, {}).get('tariff', 'тариф')
     
     try:
-        # Отправляем пользователю доступ
         bot.send_message(
             user_id_int,
             f"🎉 <b>Доступ активирован!</b>\n\n"
@@ -385,18 +388,6 @@ def admin_confirm(call):
     
     bot.answer_callback_query(call.id, "✅ Доступ выдан")
     
-    # Уведомляем других админов
-    admin_name = call.from_user.username or f"ID {call.from_user.id}"
-    for admin_id in ADMIN_IDS:
-        if admin_id != call.from_user.id:
-            try:
-                bot.send_message(
-                    admin_id,
-                    f"✅ Админ @{admin_name} подтвердил оплату для пользователя {nickname} (ID: {user_id})"
-                )
-            except:
-                pass
-    
     try:
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -410,7 +401,6 @@ def admin_confirm(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('reject_'))
 def admin_reject(call):
-    # Проверяем, что админ есть в списке
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ У вас нет прав администратора")
         return
@@ -511,7 +501,6 @@ def help_msg(message):
 
 @bot.message_handler(commands=['numbers'])
 def show_all_numbers(message):
-    # Проверяем, что админ есть в списке
     if not is_admin(message.from_user.id):
         return
     
@@ -528,7 +517,6 @@ def show_all_numbers(message):
 
 @bot.message_handler(commands=['test'])
 def test_bot(message):
-    """Команда для проверки работы бота"""
     if not is_admin(message.from_user.id):
         return
     
@@ -543,7 +531,6 @@ def test_bot(message):
 
 @bot.message_handler(commands=['broadcast'])
 def broadcast(message):
-    """Отправить сообщение всем пользователям (только для админов)"""
     if not is_admin(message.from_user.id):
         return
     
@@ -587,47 +574,20 @@ def other(message):
     )
 
 def keep_alive():
-    """Функция для поддержания активности на Render"""
+    """Функция для поддержания активности"""
     fail_count = 0
     while running:
-        time.sleep(240)  # Каждые 4 минуты (меньше чем 5)
+        time.sleep(240)
         try:
             bot.get_me()
             logger.info(f"✅ Пинг бота: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-            fail_count = 0  # Сбрасываем счетчик при успехе
+            fail_count = 0
         except Exception as e:
             fail_count += 1
             logger.error(f"❌ Ошибка пинга ({fail_count}): {e}")
-            # Если много ошибок подряд - ничего страшного, main цикл перезапустит бота
             if fail_count > 3:
                 logger.warning("⚠️ Много ошибок пинга, но main цикл всё исправит")
                 fail_count = 0
-
-# ========== ВЕБ-СЕРВЕР ДЛЯ RENDER ==========
-from flask import Flask
-import threading
-
-# Создаем простой веб-сервер
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "✅ Бот работает!", 200
-
-@app.route('/health')
-def health():
-    return "OK", 200
-
-def run_web_server():
-    """Запускаем веб-сервер на порту 10000"""
-    port = int(os.getenv('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
-
-# Запускаем веб-сервер в отдельном потоке
-web_thread = threading.Thread(target=run_web_server, daemon=True)
-web_thread.start()
-print(f"✅ Веб-сервер запущен на порту {os.getenv('PORT', 10000)}")
-# ===========================================
 
 if __name__ == '__main__':
     print("=" * 60)
@@ -642,7 +602,7 @@ if __name__ == '__main__':
     print("=" * 60)
     
     # Проверка доступности админов
-    logger.info("🔍 Проверка доступности админов...")
+    logger.info("🔍 Проверка доступности администраторов...")
     for admin_id in ADMIN_IDS:
         try:
             bot.send_chat_action(admin_id, 'typing')
@@ -654,25 +614,23 @@ if __name__ == '__main__':
     alive_thread = threading.Thread(target=keep_alive, daemon=True)
     alive_thread.start()
     
-    # Запускаем веб-сервер (если он уже есть в коде)
+    # Даем Flask время запуститься
+    time.sleep(2)
     
-    # ===== НОВЫЙ НАДЕЖНЫЙ ЦИКЛ ЗАПУСКА =====
+    # Запускаем бота
     logger.info("✅ Бот запущен и ожидает сообщения...")
     
     crash_count = 0
     while running:
         try:
-            # Пытаемся запустить бота
             bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
         except requests.exceptions.ConnectionError as e:
-            # Это ожидаемая ошибка - просто перезапускаем
             crash_count += 1
             logger.error(f"❌ Ошибка соединения ({crash_count}): {e}")
             logger.info("🔄 Перезапуск через 5 секунд...")
             time.sleep(5)
-            crash_count = 0  # Сбрасываем счетчик при успешном перезапуске
+            crash_count = 0
         except Exception as e:
-            # Другие ошибки
             crash_count += 1
             logger.error(f"❌ Неожиданная ошибка ({crash_count}): {e}")
             
