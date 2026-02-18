@@ -359,14 +359,24 @@ def admin_confirm(call):
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ У вас нет прав администратора")
         return
+    
     user_id_str = call.data.split('_')[1]
+    
+    # Проверяем, не обработана ли уже заявка
+    if call.message.text and "✅ ОПЛАЧЕНО" in call.message.text or "❌ ОТКЛОНЕНО" in call.message.text:
+        bot.answer_callback_query(call.id, "❌ Эта заявка уже обработана другим админом!", show_alert=True)
+        return
+    
     try:
         user_id_int = int(user_id_str)
     except:
         bot.answer_callback_query(call.id, "❌ Ошибка ID")
         return
+    
     nickname = users.get(user_id_str, {}).get('nick', 'игрок')
     tariff = users.get(user_id_str, {}).get('tariff', 'тариф')
+    
+    # Отправляем сообщение пользователю
     try:
         bot.send_message(
             int(user_id_str),
@@ -378,6 +388,7 @@ def admin_confirm(call):
             f"👇 <b>Для комфортной игры на нашем сервере рекомендуем скачать эти моды:</b>",
             parse_mode='HTML'
         )
+        
         mods_text = "\n\n".join(MOD_LINKS)
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -387,29 +398,44 @@ def admin_confirm(call):
         )
         bot.send_message(int(user_id_str), mods_text, parse_mode='HTML', reply_markup=markup)
         bot.send_message(int(user_id_str), "🎮 <b>Удачной игры на сервере!</b>", parse_mode='HTML')
+        
         logger.info(f"✅ Доступ выдан пользователю {user_id_str} админом {call.from_user.id}")
+        
     except Exception as e:
         logger.error(f"❌ Ошибка отправки пользователю {user_id_str}: {e}")
         bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)[:50]}")
         return
-    bot.answer_callback_query(call.id, "✅ Доступ выдан")
+    
+    # ИЗМЕНЯЕМ СООБЩЕНИЕ У АДМИНА - убираем кнопки и показываем кто подтвердил
+    admin_name = call.from_user.username or f"админ {call.from_user.id}"
+    
     try:
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=call.message.text + "\n\n✅ <b>ОПЛАТА ПОДТВЕРЖДЕНА</b> ✅",
+            text=call.message.text + f"\n\n✅ <b>ЗАЯВКА ОДОБРЕНА</b> ✅\n👤 Подтвердил: @{admin_name}",
             parse_mode='HTML',
-            reply_markup=None
+            reply_markup=None  # Убираем кнопки!
         )
     except:
         pass
+    
+    bot.answer_callback_query(call.id, "✅ Доступ выдан")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('reject_'))
 def admin_reject(call):
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "❌ У вас нет прав администратора")
         return
+    
     user_id_str = call.data.split('_')[1]
+    
+    # Проверяем, не обработана ли уже заявка
+    if call.message.text and "✅ ОДОБРЕНО" in call.message.text or "❌ ОТКЛОНЕНО" in call.message.text:
+        bot.answer_callback_query(call.id, "❌ Эта заявка уже обработана другим админом!", show_alert=True)
+        return
+    
+    # Отправляем сообщение пользователю об отклонении
     try:
         bot.send_message(
             int(user_id_str),
@@ -418,11 +444,27 @@ def admin_reject(call):
             "• Не подтверждена оплата\n"
             "• Не получен перевод\n"
             "• Некорректные данные\n\n"
-            "📞 Для уточнения свяжитесь с поддержкой"
+            "📞 Для уточнения свяжитесь с поддержкой",
+            parse_mode='HTML'
         )
         logger.info(f"❌ Заявка отклонена для пользователя {user_id_str} админом {call.from_user.id}")
     except Exception as e:
         logger.error(f"❌ Ошибка отправки пользователю {user_id_str}: {e}")
+    
+    # ИЗМЕНЯЕМ СООБЩЕНИЕ У АДМИНА - убираем кнопки и показываем кто отклонил
+    admin_name = call.from_user.username or f"админ {call.from_user.id}"
+    
+    try:
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=call.message.text + f"\n\n❌ <b>ЗАЯВКА ОТКЛОНЕНА</b> ❌\n👤 Отклонил: @{admin_name}",
+            parse_mode='HTML',
+            reply_markup=None  # Убираем кнопки!
+        )
+    except:
+        pass
+    
     bot.answer_callback_query(call.id, "❌ Заявка отклонена")
 
 @bot.message_handler(func=lambda m: m.text == "📦 Моды")
