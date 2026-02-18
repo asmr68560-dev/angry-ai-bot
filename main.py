@@ -6,7 +6,6 @@ import sys
 import time
 import threading
 import requests
-import atexit
 import logging
 from flask import Flask
 
@@ -18,26 +17,21 @@ def hard_reset_bot():
         return
     
     print("🔄 ЖЕСТКИЙ СБРОС ПОДКЛЮЧЕНИЙ...")
-    
     try:
         close_url = f"https://api.telegram.org/bot{token}/close"
-        close_response = requests.post(close_url)
-        print(f"📡 Close session: {close_response.status_code}")
+        requests.post(close_url)
         time.sleep(1)
-        
-        webhook_url = f"https://api.telegram.org/bot{token}/deleteWebhook"
-        webhook_response = requests.post(webhook_url, json={"drop_pending_updates": True})
-        print(f"📡 Delete webhook: {webhook_response.status_code}")
+        delete_webhook_url = f"https://api.telegram.org/bot{token}/deleteWebhook"
+        requests.post(delete_webhook_url, json={"drop_pending_updates": True})
         time.sleep(1)
-        
         print("✅ Сброс завершен!")
     except Exception as e:
         print(f"❌ Ошибка при сбросе: {e}")
 
-# Вызываем ДО инициализации бота
+# Выполняем сброс перед запуском
 hard_reset_bot()
 
-# Настройка логирования
+# Логирование
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -48,28 +42,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Настройки из переменных окружения (теперь токен встроен)
+# Токен бота
 TOKEN = '8247657980:AAE7hrsVNlxoRpWRfrvvutUJNAbRpiUa_p8'
 
-# ===== СПИСОК ВСЕХ АДМИНОВ =====
+# Админы
 ADMIN_IDS = [
-    913566244,   # ваш ID
-    6108135706,  # первый админ
-    5330661807,  # второй админ
+    913566244,
+    6108135706,
+    5330661807,
 ]
 
-if not TOKEN:
-    logger.error("❌ ОШИБКА: токен бота не найден!")
-    sys.exit(1)
-
-# Инициализация бота
+# Инициализация
 bot = telebot.TeleBot(TOKEN)
 
 # Конфигурация
 PAYMENT_NUMBERS = [
-    ["🎮 Проходка на один сезон - 25 руб", "+7 (932) 304-57-76"],
-    ["⭐️ Проходка на всегда - 85 руб", "+7 (932) 304-57-76"],
-    ["👑 Улучшение проходки - 60 руб", "+7 (932) 304-57-76"]
+    ["🎮 Проходка на один сезон - 25 руб", "+7 (932) 304-54-76"],
+    ["⭐️ Проходка на всегда - 85 руб", "+7 (932) 304-54-76"],
+    ["👑 Улучшение проходки - 60 руб", "+7 (932) 304-54-76"]
 ]
 
 MOD_LINKS = [
@@ -81,29 +71,10 @@ MOD_LINKS = [
 SERVER_IP = "Oxidized.minerent.io"
 SERVER_VERSION = "1.21.11 Fabric"
 
-# Хранилище пользователей
 users = {}
-
-# Флаг для остановки бота
-running = True
-
-def signal_handler(signum, frame):
-    """Обработка сигналов остановки"""
-    global running
-    logger.info("🛑 Получен сигнал остановки, завершаем работу...")
-    running = False
-    try:
-        bot.stop_polling()
-    except:
-        pass
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
-
-# ========== ВЕБ-СЕРВЕР В ОТДЕЛЬНОМ ПОТОКЕ ==========
 app = Flask(__name__)
 
+# Веб-сервер
 @app.route('/')
 def home():
     return "✅ Бот работает!", 200
@@ -113,28 +84,50 @@ def health():
     return "OK", 200
 
 def run_flask():
-    """Запускаем Flask в отдельном потоке"""
     port = int(os.getenv('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
 
-# Запускаем Flask в отдельном потоке
+# Запуск веб-сервера
 flask_thread = threading.Thread(target=run_flask, daemon=True)
 flask_thread.start()
 print(f"✅ Веб-сервер запущен на порту {os.getenv('PORT', 10000)}")
-# ===================================================
 
-# Обработчик команды /start
+# Обработка сигнала
+def signal_handler(signum, frame):
+    global running
+    logger.info("🛑 Получен сигнал остановки, завершаем работу...")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+# Проверка доступности админов
+def check_admins():
+    for admin_id in ADMIN_IDS:
+        try:
+            bot.send_chat_action(admin_id, 'typing')
+            logger.info(f"✅ Админ {admin_id} доступен")
+        except:
+            logger.warning(f"⚠️ Админ {admin_id} НЕДОСТУПЕН (нужно написать /start)")
+
+# Основная логика запуска бота с автоматическим перезапуском
+def start_bot():
+    while True:
+        try:
+            bot.infinity_polling()
+        except Exception as e:
+            logger.critical(f"Критическая ошибка: {e}")
+            time.sleep(5)  # подождать перед перезапуском
+
+# Обработчики команд и сообщений
+
 @bot.message_handler(commands=['start', 'restart'])
 def start(message):
     user_id = str(message.from_user.id)
     users[user_id] = {}
     logger.info(f"👤 Новый пользователь: {user_id}")
-    
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("💰 Тарифы")
-    markup.add("📦 Моды")
-    markup.add("❓ Помощь")
-    
+    markup.add("💰 Тарифы", "📦 Моды", "❓ Помощь")
     bot.send_message(
         message.chat.id,
         "🎮 Бот для оплаты доступа к Minecraft серверу\n\n"
@@ -143,7 +136,6 @@ def start(message):
         reply_markup=markup
     )
 
-# Обработчик команды /status
 @bot.message_handler(commands=['status'])
 def bot_status(message):
     if not is_admin(message.from_user.id):
@@ -159,7 +151,6 @@ def bot_status(message):
         status = f"❌ <b>Бот НЕ отвечает!</b>\n\nОшибка: {e}"
     bot.send_message(message.chat.id, status, parse_mode='HTML')
 
-# Обработчик "💰 Тарифы"
 @bot.message_handler(func=lambda m: m.text == "💰 Тарифы")
 def show_tariffs(message):
     tariffs_text = "💳 <b>Номера для перевода:</b>\n\n"
@@ -167,10 +158,7 @@ def show_tariffs(message):
         tariffs_text += f"{i}. {name}\n📱 Номер: <code>{number}</code>\n\n"
     markup = types.InlineKeyboardMarkup(row_width=1)
     for i, (name, _) in enumerate(PAYMENT_NUMBERS):
-        markup.add(types.InlineKeyboardButton(
-            name,
-            callback_data=f"tariff_{i}"
-        ))
+        markup.add(types.InlineKeyboardButton(name, callback_data=f"tariff_{i}"))
     bot.send_message(
         message.chat.id,
         tariffs_text,
@@ -178,7 +166,6 @@ def show_tariffs(message):
         reply_markup=markup
     )
 
-# Обработчик callback для выбора тарифа
 @bot.callback_query_handler(func=lambda call: call.data.startswith('tariff_'))
 def process_tariff(call):
     tariff_index = int(call.data.split('_')[1])
@@ -208,12 +195,10 @@ def process_tariff(call):
     )
     bot.answer_callback_query(call.id)
 
-# Обработчик "Назад к тарифам"
 @bot.callback_query_handler(func=lambda call: call.data == "back_to_tariffs")
 def back_to_tariffs(call):
     show_tariffs(call.message)
 
-# Обработчик "Я перевел деньги"
 @bot.callback_query_handler(func=lambda call: call.data == "paid")
 def paid(call):
     bot.edit_message_text(
@@ -260,7 +245,6 @@ def get_nickname(message):
         parse_mode='HTML'
     )
 
-# Обработчик подтверждения от админа
 @bot.callback_query_handler(func=lambda call: call.data.startswith('confirm_'))
 def admin_confirm(call):
     if not is_admin(call.from_user.id):
@@ -311,7 +295,6 @@ def admin_confirm(call):
     except:
         pass
 
-# Обработчик отклонения заявки
 @bot.callback_query_handler(func=lambda call: call.data.startswith('reject_'))
 def admin_reject(call):
     if not is_admin(call.from_user.id):
@@ -333,7 +316,6 @@ def admin_reject(call):
         logger.error(f"❌ Ошибка отправки пользователю {user_id_str}: {e}")
     bot.answer_callback_query(call.id, "❌ Заявка отклонена")
 
-# Обработчик "📦 Моды"
 @bot.message_handler(func=lambda m: m.text == "📦 Моды")
 def show_mods(message):
     mods_text = (
@@ -359,7 +341,6 @@ def show_mods(message):
         reply_markup=markup
     )
 
-# Обработчик "❓ Помощь"
 @bot.message_handler(func=lambda m: m.text == "❓ Помощь")
 def help_msg(message):
     help_text = (
@@ -384,7 +365,6 @@ def help_msg(message):
         reply_markup=markup
     )
 
-# Обработчик команды /numbers
 @bot.message_handler(commands=['numbers'])
 def show_all_numbers(message):
     if not is_admin(message.from_user.id):
@@ -398,7 +378,6 @@ def show_all_numbers(message):
         parse_mode='HTML'
     )
 
-# Обработчик команды /test
 @bot.message_handler(commands=['test'])
 def test_bot(message):
     if not is_admin(message.from_user.id):
@@ -412,15 +391,11 @@ def test_bot(message):
         parse_mode='HTML'
     )
 
-# Обработчик рассылки
 @bot.message_handler(commands=['broadcast'])
 def broadcast(message):
     if not is_admin(message.from_user.id):
         return
-    msg = bot.send_message(
-        message.chat.id,
-        "📢 Введите сообщение для рассылки всем пользователям:"
-    )
+    msg = bot.send_message(message.chat.id, "📢 Введите сообщение для рассылки всем пользователям:")
     bot.register_next_step_handler(msg, process_broadcast)
 
 def process_broadcast(message):
@@ -443,7 +418,6 @@ def process_broadcast(message):
         f"❌ Не доставлено: {failed}"
     )
 
-# Обработчик любых других сообщений
 @bot.message_handler(func=lambda m: True)
 def other(message):
     bot.send_message(
@@ -485,27 +459,11 @@ if __name__ == '__main__':
     print(f"🔄 Режим: поллинг (без вебхука)")
     print("=" * 60)
     
-    # Проверка доступности админов
-    logger.info("🔍 Проверка доступности администраторов...")
-    for admin_id in ADMIN_IDS:
-        try:
-            bot.send_chat_action(admin_id, 'typing')
-            logger.info(f"✅ Админ {admin_id} доступен")
-        except:
-            logger.warning(f"⚠️ Админ {admin_id} НЕДОСТУПЕН (нужно написать боту /start)")
+    check_admins()
     
-    # Запускаем поток для поддержки активности
+    # Запуск поддержки активности
     alive_thread = threading.Thread(target=keep_alive, daemon=True)
     alive_thread.start()
-
-    # Функция запуска бота с автоматическим перезапуском при ошибках
-    def start_bot():
-        while True:
-            try:
-                bot.infinity_polling()
-            except Exception as e:
-                logger.critical(f"Критическая ошибка: {e}")
-                time.sleep(5)  # задержка перед перезапуском
-
-    # Запускаем бота с автоматическим перезапуском
+    
+    # Запуск бота с автоматическим перезапуском при ошибках
     start_bot()
